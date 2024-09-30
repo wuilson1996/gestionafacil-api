@@ -44,7 +44,18 @@ class Customer(models.Model):
 		}
 		if Employee.check_by_token(token=data["token"]):
 			try:
-				cls.objects.get(pk = data['pk_customer']).delete()
+				employee = Employee.search_by_token(token=data["token"])
+				_customer = cls.objects.get(pk = data['pk_customer'])
+
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.DELETE,
+					class_models=HistoryGeneral.CUSTOMER,
+					class_models_json=cls.serializers_data(_customer),
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+				_customer.delete()
 				result['code'] = 200
 				result['message'] = "Success"
 				result['status'] = "OK"
@@ -59,47 +70,71 @@ class Customer(models.Model):
 			"status": "Fail",
 			"message": "Token no valido"
 		}
-		if Employee.check_by_token(token=data["token"]):
-			branch = Employee.search_by_token(token=data["token"]).branch
-			customer = cls.objects.filter(pk = data['pk_customer'] if data["pk_customer"] != "" else 0, branch = branch).first()
-			if not customer:
-				customer = cls(
-					identification_number = data['identification_number'],
-					dv = 0,#cls.dv_client(data['identification_number']),
-					name = data['name'],
-					phone = data['phone'] if data['phone'] else None,
-					address = data['address'] if data['address'] else None,
-					email = data['email'] if data['email'] else None,
-					type_document_i = Type_Document_I.objects.filter(pk = data['type_document_identification_id']).first(),
-					type_organization = Type_Organization.objects.filter(pk = data['type_organization_id']).first(),
-					municipality = Municipalities.objects.filter(pk = data['municipality_id']).first(),
-					type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first(),
-					branch = branch
-				)
-				customer.save()
-				if data['associate_person']:
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				branch = employee.branch
+				customer = cls.objects.filter(pk = data['pk_customer'] if data["pk_customer"] != "" else 0, branch = branch).first()
+				if not customer:
+					customer = cls(
+						identification_number = data['identification_number'],
+						dv = 0,#cls.dv_client(data['identification_number']),
+						name = data['name'],
+						phone = data['phone'] if data['phone'] else None,
+						address = data['address'] if data['address'] else None,
+						email = data['email'] if data['email'] else None,
+						type_document_i = Type_Document_I.objects.filter(pk = data['type_document_identification_id']).first(),
+						type_organization = Type_Organization.objects.filter(pk = data['type_organization_id']).first(),
+						municipality = Municipalities.objects.filter(pk = data['municipality_id']).first(),
+						type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first(),
+						branch = branch
+					)
+					customer.save()
+					if data['associate_person']:
+						Associate_Person.create_associate_person(data['associate_person'], customer)
+					if data['commercial_information']:
+						Commercial_Information.create_commercial_information(data['commercial_information'], customer)
+
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.CUSTOMER,
+						class_models_json=cls.serializers_data(customer),
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				else:
+					customer.identification_number = data['identification_number']
+					customer.dv = 0
+					customer.name = data['name']
+					customer.phone = data['phone'] if data['phone'] else None
+					customer.address = data['address'] if data['address'] else None
+					customer.email = data['email'] if data['email'] else None
+					customer.municipality = Municipalities.objects.filter(pk = data['municipality_id']).first()
+					customer.type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first()
+					customer.save()
+					#if data['associate_person']:
 					Associate_Person.create_associate_person(data['associate_person'], customer)
-				if data['commercial_information']:
+					#if data['commercial_information']:
+					#print(data['commercial_information'])
 					Commercial_Information.create_commercial_information(data['commercial_information'], customer)
-			else:
-				customer.identification_number = data['identification_number']
-				customer.dv = 0
-				customer.name = data['name']
-				customer.phone = data['phone'] if data['phone'] else None
-				customer.address = data['address'] if data['address'] else None
-				customer.email = data['email'] if data['email'] else None
-				customer.municipality = Municipalities.objects.filter(pk = data['municipality_id']).first()
-				customer.type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first()
-				customer.save()
-				#if data['associate_person']:
-				Associate_Person.create_associate_person(data['associate_person'], customer)
-				#if data['commercial_information']:
-				Commercial_Information.create_commercial_information(data['commercial_information'], customer)
 
-			result['code'] = 200
-			result['message'] = "Success"
-			result['status'] = "OK"
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.CUSTOMER,
+						class_models_json=cls.serializers_data(customer),
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
 
+				result['code'] = 200
+				result['message'] = "Success"
+				result['status'] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+
+		#print(result)
 		return result
 
 	@classmethod
@@ -115,39 +150,15 @@ class Customer(models.Model):
 			branch = branch
 		)
 		customer.save()
-
-
-	@classmethod
-	def update_customer(cls, data):
-		result = {
-			"code": 400,
-			"status": "Fail",
-			"message": "Token no valido"
-		}
-		try:
-			if Employee.check_by_token(token=data["token"]):
-				customer = cls.objects.get(pk = data['pk_customer'])
-				customer.identification_number = data['identification_number']
-				customer.dv = 0#cls.dv_client(data['identification_number'])
-				customer.name = data['name']
-				customer.phone = data['phone']
-				customer.address = data['address']
-				customer.email = data['email']
-				customer.email_optional = data['email_optional']
-				customer.type_document_i = Type_Document_I.objects.get(pk = data['type_document_identification_id'])
-				customer.type_organization = Type_Organization.objects.get(pk = data['type_organization_id'])
-				customer.municipality = Municipalities.objects.get(pk = data['municipality_id'])
-				customer.type_regime = Type_Regimen.objects.get(pk = data['type_regime_id'])
-				customer.save()
-				result['code'] = 200
-				result['message'] = "Success"
-				result['status'] = "OK"
-		except cls.DoesNotExist as e:
-			customer = None
-			result['message'] = str(e)
-
-		return result
-
+		employee = Employee.objects.filter(branch=branch).first()
+		HistoryGeneral.create_history(
+			action=HistoryGeneral.CREATED,
+			class_models=HistoryGeneral.CUSTOMER,
+			class_models_json=cls.serializers_data(customer),
+			employee=employee.pk,
+			username=employee.user_django.username,
+			branch=employee.branch.pk
+		)
 
 	@staticmethod
 	def serializers_data(obj):
@@ -208,8 +219,7 @@ class Customer(models.Model):
 			except Exception as e:
 				result["message"] = str(e)
 		#print(result)
-		return result
-		
+		return result		
 
 class Associate_Person(models.Model):
 	name = models.CharField(max_length = 50)
@@ -288,28 +298,11 @@ class Associate_Person(models.Model):
 			})
 		return associate_person
 
-class List_Price(models.Model):
-	name = models.CharField(max_length = 50)
-	percent = models.IntegerField()
-	customer = models.ForeignKey(Customer, on_delete = models.CASCADE)
-
-	def __str__(self):
-		return f'{self.name} - {self.percent} by {self.customer.name}'
-
-	@classmethod
-	def get_list_price(cls, customer, data):
-		try:
-			price, created = cls.objects.get(customer=customer, name=data['name'])
-			print(price)
-		except cls.DoesNotExist:
-			price = cls(name=data['name'], percent=data['percent'], customer=customer)
-			price.save()
-		print(price)
-		return price
-
 class Commercial_Information(models.Model):
 	payment_deadline = models.CharField(max_length = 50)
-	list_price = models.ForeignKey(List_Price, on_delete = models.CASCADE, related_name='customer_list_price')
+	list_price = models.ForeignKey(List_Price, on_delete = models.CASCADE, related_name='customer_list_price', null=True, blank=True)
+	seller_info = models.ForeignKey(SellerInfo, on_delete = models.CASCADE, related_name='customer_seller', null=True, blank=True)
+	term_payment = models.ForeignKey(TermPayment, on_delete = models.CASCADE, related_name='customer_term_payment', null=True, blank=True)
 	cfdi = models.ForeignKey(CFDI, on_delete = models.CASCADE, related_name='customer_cfdi')
 	payment_method = models.ForeignKey(Payment_Method, on_delete = models.CASCADE, related_name='customer_payment_method')
 	payment_form = models.ForeignKey(Payment_Form, on_delete = models.CASCADE, related_name='customer_payment_form')
@@ -322,9 +315,12 @@ class Commercial_Information(models.Model):
 		try:
 			commercial_information = cls.objects.filter(pk=data["ci_pk"] if data["ci_pk"] != "" else 0).first()
 			if not commercial_information:
+				_term_payment = TermPayment.objects.filter(pk = data["pk_term_payment"]).first()
 				cp = cls(
-					payment_deadline = data['payment_deadline'],
-					list_price = List_Price.get_list_price(customer, {"name":"test", "percent":0}),
+					payment_deadline = _term_payment.name if _term_payment else "",
+					list_price = List_Price.objects.filter(pk = data["pk_list_price"]).first(),
+					seller_info = SellerInfo.objects.filter(pk = data['pk_seller']).first(),
+					term_payment = _term_payment,
 					cfdi = CFDI.objects.get(pk = data['cfdi']),
 					payment_method = Payment_Method.objects.get(pk = data['payment_method']),
 					payment_form = Payment_Form.objects.get(pk = data['payment_form']),
@@ -332,8 +328,11 @@ class Commercial_Information(models.Model):
 				)
 				cp.save()
 			else:
-				commercial_information.payment_deadline = data['payment_deadline']
-				#commercial_information.list_price = List_Price.get_list_price(customer, {"name":"test", "percent":0})
+				_term_payment = TermPayment.objects.filter(pk = data["pk_term_payment"]).first()
+				commercial_information.payment_deadline = _term_payment.name if _term_payment else ""
+				commercial_information.list_price = List_Price.objects.filter(pk = data["pk_list_price"]).first()
+				commercial_information.seller_info = SellerInfo.objects.filter(pk = data['pk_seller']).first()
+				commercial_information.term_payment = _term_payment
 				commercial_information.cfdi = CFDI.objects.get(pk = data['cfdi'])
 				commercial_information.payment_method = Payment_Method.objects.get(pk = data['payment_method'])
 				commercial_information.payment_form = Payment_Form.objects.get(pk = data['payment_form'])
@@ -344,6 +343,7 @@ class Commercial_Information(models.Model):
 			message = "Success"
 		except Exception as e:
 			message = str(e)
+		print(message)
 		return {'result':result, 'message':message}
 
 	@classmethod
@@ -355,6 +355,10 @@ class Commercial_Information(models.Model):
 				"payment_deadline": ci.payment_deadline,
 				"list_price": ci.list_price.pk,
 				"list_price_name": ci.list_price.name,
+				"seller": ci.seller_info.pk,
+				"seller_name": ci.seller_info.name,
+				"term_payment": ci.term_payment.pk,
+				"term_payment_name": ci.term_payment.name,
 				"cfdi": ci.cfdi.pk,
 				"cfdi_name": ci.cfdi.name,
 				"payment_method": ci.payment_method.pk,

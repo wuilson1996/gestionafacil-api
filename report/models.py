@@ -1,6 +1,6 @@
 from inventory.models import Product, History_Product
 from django.core import serializers
-from invoice.models import Invoice, Details_Invoice, Payment_Forms
+from invoice.models import Invoice, Details_Invoice, Payment_Forms, PaymentToPayInvoice
 from user.models import Employee
 from shopping.models import Shopping
 from django.db.models import Sum
@@ -9,25 +9,408 @@ from datetime import datetime
 from django.db import models
 import json
 
+def parse_date(_date:str):
+	return datetime(year=int(_date.split("-")[0]), month=int(_date.split("-")[1]), day=int(_date.split("-")[2]))
+
 class Report_Invoice(models.Model):
 
 	@classmethod
-	def list_invoice(cls, data):
-		return [
-				{
-					"type_document":i.type_document,
-					'pk_invoice': i.pk,
-					'number': i.number,
-					'prefix': i.prefix,
-					'date': i.date,
-					'name_client': i.customer.name,
-					'total': i.total,
-					"state":i.state,
-					"cancelled":i.cancelled
-				}
-				for i in Invoice.objects.filter(branch = Employee.objects.get(pk = data['pk_employee']).branch, type_document = data['type_document']).order_by('-pk')
-			]
+	def list_invoice_by_item(cls, data):
+		result = {
+			"totals":{
+				"total_by_tax": 0,
+				"total": 0,
+			},
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				branch = Employee.search_by_token(data['token']).branch
+				products = {}
+				for i in Invoice.objects.filter(branch = branch, type_document = data['type_document']).order_by('-pk'):
+					_date = parse_date(i.date)
+					_date_from = parse_date(str(data["date_from"]))
+					_date_to = parse_date(str(data["date_to"]))
+					if _date >= _date_from and _date <= _date_to:
+						detail = Details_Invoice.objects.filter(invoice=i)
+						for d in detail:
+							#print(d.code)
+							if d.product:
+								if d.product.pk not in list(products.keys()):
+									products[d.product.pk] = {
+										"name": d.name,
+										"code": d.code,
+										"cant": 0,
+										"total": 0,
+										"total_by_tax": 0
+									}
 
+								products[d.product.pk]["cant"] += d.quantity
+								products[d.product.pk]["total"] += d.price * d.quantity
+								products[d.product.pk]["total_by_tax"] += d.cost * d.quantity
+								result["totals"]["total"] += d.price * d.quantity
+								result["totals"]["total_by_tax"] += d.cost * d.quantity
+
+				result["data"] = list(products.values())
+				result['code'] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+	
+		return result
+	
+	@classmethod
+	def list_invoice_by_client(cls, data):
+		result = {
+			"totals":{
+				"total_by_tax": 0,
+				"total": 0,
+			},
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				branch = Employee.search_by_token(data['token']).branch
+				clients = {}
+				for i in Invoice.objects.filter(branch = branch, type_document = data['type_document']).order_by('-pk'):
+					_date = parse_date(i.date)
+					_date_from = parse_date(str(data["date_from"]))
+					_date_to = parse_date(str(data["date_to"]))
+					if _date >= _date_from and _date <= _date_to:
+						if i.customer.identification_number not in list(clients.keys()):
+							clients[i.customer.identification_number] = {
+								"name": i.customer.name,
+								"document": i.customer.identification_number,
+								"cant_document": 0,
+								"total": 0,
+								"total_by_tax": 0
+							}
+						
+						clients[i.customer.identification_number]["cant_document"] += 1
+						detail = Details_Invoice.objects.filter(invoice=i)
+						for d in detail:
+							clients[i.customer.identification_number]["total"] += d.price * d.quantity
+							clients[i.customer.identification_number]["total_by_tax"] += d.cost * d.quantity
+							result["totals"]["total"] += d.price * d.quantity
+							result["totals"]["total_by_tax"] += d.cost * d.quantity
+
+						clients[i.customer.identification_number]
+
+				result["data"] = list(clients.values())
+				result['code'] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+	
+		return result
+
+	@classmethod
+	def list_invoice_by_seller(cls, data):
+		result = {
+			"totals":{
+				"total_by_tax": 0,
+				"total": 0,
+			},
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				branch = Employee.search_by_token(data['token']).branch
+				sellers = {}
+				from customer.models import Commercial_Information
+				for i in Invoice.objects.filter(branch = branch, type_document = data['type_document']).order_by('-pk'):
+					_date = parse_date(i.date)
+					_date_from = parse_date(str(data["date_from"]))
+					_date_to = parse_date(str(data["date_to"]))
+					if _date >= _date_from and _date <= _date_to:
+						ci = Commercial_Information.objects.filter(customer=i.customer).first()
+						if ci:
+							if ci.seller_info.pk not in list(sellers.keys()):
+								sellers[ci.seller_info.pk] = {
+									"seller_pk": ci.seller_info.pk,
+									"name": ci.seller_info.name,
+									"cant_document": 0,
+									"total": 0,
+									"total_by_tax": 0
+								}
+							sellers[ci.seller_info.pk]["cant_document"] += 1
+							detail = Details_Invoice.objects.filter(invoice=i)
+							for d in detail:
+								sellers[ci.seller_info.pk]["total"] += d.price * d.quantity
+								sellers[ci.seller_info.pk]["total_by_tax"] += d.cost * d.quantity
+								result["totals"]["total"] += d.price * d.quantity
+								result["totals"]["total_by_tax"] += d.cost * d.quantity
+
+				result["data"] = list(sellers.values())
+				result['code'] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+		return result
+	
+	@classmethod
+	def list_invoice_by_account(cls, data):
+		result = {
+			"totals":{
+				"total": 0,
+				"retention": 0,
+				"cobrado": 0,
+				"saldo": 0
+			},
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				branch = Employee.search_by_token(data['token']).branch
+				from customer.models import Customer
+				for i in Invoice.objects.filter(branch = branch, customer=Customer.objects.filter(pk = data["pk_customer"]).first()).order_by('-pk'):
+					_date = parse_date(i.date)
+					_date_from = parse_date(str(data["date_from"]))
+					_date_to = parse_date(str(data["date_to"]))
+					if _date >= _date_from and _date <= _date_to:
+						state_account = PaymentToPayInvoice.objects.filter(invoice=i).last()
+						result["totals"]["total"] += i.total
+						result["totals"]["cobrado"] += state_account.amount
+						result["totals"]["saldo"] += i.total - state_account.amount
+						result["data"].append(
+							{
+								"type_document":i.type_document,
+								'pk_invoice': i.pk,
+								'number': i.number,
+								'prefix': i.prefix,
+								'date': i.date,
+								'name_client': i.customer.name,
+								'pk_client': i.customer.pk,
+								'total': i.total if i.total else 0,
+								"state": i.state_invoice,
+								"cancelled":i.cancelled,
+								"expiration": str(state_account.date.date()),
+								"days": (datetime.now().date() - state_account.date.date()).days,
+								"cobrado": state_account.amount,
+								"pending": i.total - state_account.amount,
+								"retention": 0
+							}
+						)
+				result['code'] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+			print(e)
+		return result
+
+	@classmethod
+	def list_invoice_by_item_profit(cls, data):
+		result = {
+			"totals":{
+				"cost": 0,
+				"total": 0,
+				"rentable": 0
+			},
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				branch = Employee.search_by_token(data['token']).branch
+				products = {}
+				for i in Invoice.objects.filter(branch = branch, type_document = data['type_document']).order_by('-pk'):
+					_date = parse_date(i.date)
+					_date_from = parse_date(str(data["date_from"]))
+					_date_to = parse_date(str(data["date_to"]))
+					if _date >= _date_from and _date <= _date_to:
+						detail = Details_Invoice.objects.filter(invoice=i)
+						for d in detail:
+							#print(d.code)
+							if d.product:
+								if d.product.pk not in list(products.keys()):
+									products[d.product.pk] = {
+										"name": d.name,
+										"code": d.code,
+										"cant": 0,
+										"total": 0,
+										"cost": 0,
+										"rentable": 0,
+										"porcent": 0
+									}
+
+								products[d.product.pk]["cant"] += d.quantity
+								products[d.product.pk]["total"] += d.cost * d.quantity
+								products[d.product.pk]["cost"] += d.product.price_init * d.quantity
+								products[d.product.pk]["rentable"] += (d.cost * d.quantity) - (d.product.price_init * d.quantity)
+
+								result["totals"]["total"] += d.cost * d.quantity
+								result["totals"]["cost"] += d.product.price_init * d.quantity
+								result["totals"]["rentable"] += (d.cost * d.quantity) - (d.product.price_init * d.quantity)
+
+				for _, value in products.items():
+					value['porcent'] = (float(value['rentable']) / float(value['total'])) * 100
+				result["data"] = list(products.values())
+				result['code'] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+			print(e)
+
+		return result
+
+	@classmethod
+	def list_invoice(cls, data):
+		chart = {}
+		for y in data['year']:
+			chart[y] = {
+				"jan": 0,
+				"feb": 0,
+				"mar": 0,
+				"apr": 0,
+				"may": 0,
+				"jun": 0,
+				"jul": 0,
+				"aug": 0,
+				"sep": 0,
+				"oct": 0,
+				"nov": 0,
+				"dec": 0
+			}
+		month_text_num = {
+			"01": "jan",
+			"02": "feb",
+			"03": "mar",
+			"04": "apr",
+			"05": "may",
+			"06": "jun",
+			"07": "jul",
+			"08": "aug",
+			"09": "sep",
+			"10": "oct",
+			"11": "nov",
+			"12": "dec"
+		}
+		result = {
+			"year":data["year"],
+			"chart": [],
+			"totals":{
+				"subtotal": 0,
+				"discount": 0,
+				"sales": 0,
+				"credit_note": 0,
+				"tax": 0,
+				"total_by_tax": 0,
+				"total": 0
+			},
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				branch = Employee.search_by_token(data['token']).branch
+				from inventory.models import ProductInStore
+				from company.models import SerieFolio
+				for i in Invoice.objects.filter(branch = branch, type_document = data['type_document']).order_by('-pk'):
+					
+					# add filter to chart anios
+					#if i.date.split("-")[0] in data['year']:
+					#	chart[i.date.split("-")[0]][month_text_num[i.date.split("-")[1]]] += i.total if i.total else 0
+
+					# add filter dates.
+					_date = parse_date(i.date)
+					_date_from = parse_date(str(data["date_from"]))
+					_date_to = parse_date(str(data["date_to"]))
+
+					#print(_date_from, _date_to)
+					# check number.
+					_num = False
+					if data["num"]:
+						for n in data["num"]:
+							_serie_folio = SerieFolio.objects.filter(pk = n).first()
+							if _serie_folio.serie == i.prefix:
+								_num = True
+								break
+					else:
+						_num = True
+					
+					if _date >= _date_from and _date <= _date_to and _num:
+						detail = Details_Invoice.objects.filter(invoice=i)
+						discount = 0
+						tax = 0
+						subtotal = 0
+						_store = False
+						for d in detail:
+							tax += d.tax * d.quantity
+							discount += d.discount * d.quantity
+							subtotal += d.cost * d.quantity
+							if data["store"]:
+								# check store product
+								product_in_store = ProductInStore.objects.filter(product=d.product)
+								for pis in product_in_store:
+									if pis.store.pk in data["store"]:
+										_store = True
+										break
+							else:
+								_store = True
+
+						if _store:
+							chart[i.date.split("-")[0]][month_text_num[i.date.split("-")[1]]] += i.total if i.total else 0
+							result['totals']["subtotal"] += subtotal
+							result['totals']["discount"] += discount
+							result['totals']["sales"] += i.total if i.total else 0
+							result['totals']["tax"] += tax
+							result['totals']["total_by_tax"] += subtotal
+							result['totals']["total"] += subtotal + tax
+
+							state_account = PaymentToPayInvoice.objects.filter(invoice=i).last()
+
+							result["data"].append(
+								{
+									"type_document":i.type_document,
+									'pk_invoice': i.pk,
+									'number': i.number,
+									'prefix': i.prefix,
+									'date': i.date,
+									'name_client': i.customer.name,
+									'pk_client': i.customer.pk,
+									'total': i.total if i.total else 0,
+									"state_invoice":i.state,
+									"state": i.state_invoice,
+									"tax":tax,
+									"discount":discount,
+									"subtotal":subtotal,
+									"cancelled":i.cancelled
+								}
+							)
+
+				result["totals"]["sales"] -= result['totals']["discount"]
+				#print(list(chart.values()))
+				for key, value in chart.items():
+					result['chart'].append({key: value})
+				result['code'] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result['message'] = str(e)
+			print(e)
+		return result
+	
 	@staticmethod
 	def return_value_tax(tax,obj):
 		value = 0

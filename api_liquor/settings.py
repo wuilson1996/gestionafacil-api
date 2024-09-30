@@ -28,6 +28,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ORIGIN = [
+    '*',
+]
 
 # Application definition
 
@@ -130,6 +134,17 @@ CART_SESSION_ID = 'cart'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000000
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10000000
+
+URL_API = "http://127.0.0.1:8000"
+URL_SITE = "http://127.0.0.1:8080"
+URL_API_SOAT = "https://demo-facturacion.finkok.com/servicios/soap" # finkok
+API_USERNAME = "desarrolloswuilsoft@gmail.com" # finkok
+API_PASSWORD = "Medellin123*" # finkok
+URL_FILE = "http://127.0.0.1:8000/" # local
+#URL_FILE = "https://api.gestionafacil.wuilsoft.tech/" # server
+URL_MAKE_PDF = 'C:/Program Files (x86)/wkhtmltopdf/bin/wkhtmltopdf.exe' # Windows
+
+#https://github.com/falconsoft3d/instalar-odoo-wkhtmltopdf
+#URL_MAKE_PDF = '/usr/bin/wkhtmltopdf' # linux

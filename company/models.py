@@ -15,18 +15,29 @@ class Company(models.Model):
 	type_organization = models.ForeignKey(Type_Organization, on_delete = models.CASCADE, null = True, blank = True)
 	type_regime = models.ForeignKey(Type_Regimen, on_delete = models.CASCADE, null = True, blank = True)
 	municipality = models.ForeignKey(Municipalities, on_delete = models.CASCADE, null = True, blank = True)
-	documentI = models.IntegerField(unique = True)
+	sector = models.ForeignKey(Sector, on_delete = models.CASCADE, null = True, blank = True)
+	documentI = models.CharField(max_length=100, null=True, blank=True)
 	name = models.CharField(max_length=200)
+	name_commercial = models.CharField(max_length=200)
 	address = models.CharField(max_length = 150)
 	phone = models.CharField(max_length = 15)
-	email = models.EmailField(unique=True)
+	email = models.EmailField()
 	verified = models.BooleanField(default= False)
 	production = models.BooleanField(default = False)
 	token = models.CharField(max_length = 100, null = True, blank = True)
 	logo = models.ImageField(upload_to = "Logo_Company", null = True, blank = True,default = "Logo_Company/withOut.png")
+	logo_b64 = models.TextField(null = True, blank = True)
 	software_company = models.CharField(max_length = 150, null = True, blank = True)
 	testsetid = models.CharField(max_length = 150, null = True, blank = True)
 	ping = models.IntegerField(null = True, blank=True)
+	site = models.CharField(max_length = 512, null = True, blank = True)
+	cant_employee = models.CharField(max_length = 150, null = True, blank = True)
+	money = models.CharField(max_length = 50, null = True, blank = True)
+	decimal = models.CharField(max_length = 50, null = True, blank = True)
+	point = models.CharField(max_length = 50, null = True, blank = True)
+	cer_file = models.FileField(upload_to="cert", null=True, blank=True)
+	key_file = models.FileField(upload_to="cert", null=True, blank=True)
+	pwd = models.CharField(max_length=200, null=True, blank=True)
 	#type_current = models.CharField(max_length = 3,null = True, blank=True) #COP
 
 	def __str__(self):
@@ -57,6 +68,17 @@ class Company(models.Model):
 		return json.loads(response.text)['token']
 
 	@classmethod
+	def save_file(cls, data_file, name_file, path="media/Logo_Company/"):
+		import base64
+		import random
+		_name_file = name_file.split(".")[-2]
+		_ext = name_file.split(".")[-1]
+		_name_file = _name_file+str(random.randint(100000, 999999))+"."+str(_ext)
+		with open(path+_name_file, "wb") as file:
+			file.write(base64.b64decode(bytes(data_file, "utf-8") + b'=='))
+		return _name_file
+
+	@classmethod
 	def create_company(cls,data):
 		result = False
 		message = None
@@ -64,37 +86,148 @@ class Company(models.Model):
 		try:
 			#token = cls.create_company_api(cls,data)
 			#if token:
-			token = Token.objects.filter(key=data["token"]).first()
-			if token:
-				company = cls(
-					documentI = data['documentI'],
-					name = data['business_name'],
-					address = data['address'],
-					phone = data['phone'],
-					email = data['email'],
-					type_document_identification = Type_Document_I.objects.filter(pk = data['type_document_identification_id']).first(),
-					type_organization = Type_Organization.objects.filter(pk = data['type_organization_id']).first(),
-					type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first(),
-					municipality = Municipalities.objects.filter(pk = data['municipality_id']).first(),
-					token = "",
-					production = data['production'] if data['production'] is not None else False,
-					software = data['id'],
-					ping = data['pin']
-				)
-				company.save()
-				result = True
-				message = "Success"
-				pk = company.pk
-				data['pk_company'] = company.pk
-				data_branch = Branch.create_branch(data)
-				#result = Software.create_software(data,company)
+			from user.models import Employee
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				company = Company.objects.filter(pk = data["pk_company"]).first()
+				#print(company)
+				if not company:
+					company = cls(
+						documentI = data['documentI'],
+						name = data['business_name'],
+						name_commercial = data["name_commercial"],
+						address = data['address'],
+						phone = data['phone'],
+						email = data['email'],
+						type_document_identification = Type_Document_I.objects.filter(pk = data['type_document_identification_id']).first(),
+						type_organization = Type_Organization.objects.filter(pk = data['type_organization_id']).first(),
+						type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first(),
+						municipality = Municipalities.objects.filter(pk = data['municipality_id']).first(),
+						token = "",
+						production = data['production'] if data['production'] is not None else False,
+						software_company = data['id'],
+						ping = data['pin'],
+						sector = Sector.objects.filter(pk=data["sector"]).first(),
+						site = data["site"],
+						cant_employee = data["cant_employee"],
+						money = data["money"],
+						decimal = data["decimal"],
+						point = data["point"]
+					)
+
+					company.save()
+					result = True
+					message = "Success"
+					pk = company.pk
+					data['pk_company'] = company.pk
+					data_branch = Branch.create_branch(data)
+					#result = Software.create_software(data,company)
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.EMPRESA,
+						class_models_json=json.loads(serializers.serialize('json', [company]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+					
+				else:
+					company.documentI = data['documentI']
+					company.name = data['business_name']
+					company.address = data['address']
+					company.phone = data['phone']
+					company.email = data['email']
+					company.name_commercial = data["name_commercial"]
+					company.type_document_identification = Type_Document_I.objects.filter(pk = data['type_document_identification_id']).first()
+					company.type_organization = Type_Organization.objects.filter(pk = data['type_organization_id']).first()
+					company.type_regime = Type_Regimen.objects.filter(pk = data['type_regime_id']).first()
+					company.municipality = Municipalities.objects.filter(pk = data['municipality_id']).first()
+					company.token = ""
+					company.production = data['production'] if data['production'] is not None else False
+					company.software_company = data['id']
+					company.ping = data['pin']
+					company.sector = Sector.objects.filter(pk=data["sector"]).first()
+					company.site = data["site"]
+					company.cant_employee = data["cant_employee"]
+					company.money = data["money"]
+					company.decimal = data["decimal"]
+					company.point = data["point"]
+
+					# Save logo
+					_logo = ""
+					if data["logo"] != None:
+						_logo = cls.save_file(data["logo"], data["logo_name"])
+						company.logo = "Logo_Company/"+_logo
+						company.logo_b64 = data["logo"]
+					#print(_logo)
+
+					# save cer
+					_cer = ""
+					if data["cer"] != None:
+						_cer = cls.save_file(data["cer"], data["cer_name"], "cert/")
+						company.cer_file = "cert/"+_cer
+					#print(_cer)
+
+					# save key
+					_key = ""
+					if data["key"] != None:
+						_key = cls.save_file(data["key"], data["key_name"], "cert/")
+						company.key_file = "cert/"+_key
+					#print(_key)
+					company.pwd = data["pwd"]
+
+					company.save()
+
+					from invoice.finkok import FinkokService
+					# get register client with finkok.
+					finkok_service = FinkokService(rfc=company.documentI)
+					resp = finkok_service.get_register_client()
+					print(resp)
+					if len(resp["users"]["ResellerUser"]) == 0:
+						# register client from finkok.
+						resp2 = finkok_service.register_client(str(company.cer_file), str(company.key_file), company.pwd)
+						print(resp2)
+					
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.EMPRESA,
+						class_models_json=json.loads(serializers.serialize('json', [company]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+					result = True
+					message = "Success"
+					pk = company.pk
+					data['pk_company'] = company.pk
+					data_branch = {"pk_branch" :Branch.get_branch(data)["data"]["pk"]}
+					#print(data_branch)
+					
 		except IntegrityError as inte:
 			Branch.create_branch(data)
 			message = f"Error IntegrityError Company {inte}"
 		except Exception as e:
 			message = str(e)
+		#print(message)
 		return {'result':result, 'message':message,'pk_company': pk, "pk_branch": data_branch["pk_branch"]}
 
+	@classmethod
+	def get_company(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		if Employee.check_by_token(token=data["token"]):
+			branch = Employee.search_by_token(token=data["token"]).branch
+			result["data"] = json.loads(serializers.serialize('json', [branch.company]))[0]
+			result["data"]["fields"]["regimen_data"] = json.loads(serializers.serialize('json', [branch.company.type_regime]))[0]["fields"] if branch.company.type_regime else {}
+			#result["data"]['fields']['logo'] = env.URL_LOCAL + branch.company.logo.url
+			result['code'] = 200
+			result['message'] = "Success"
+			result["status"] = "OK"
+		return result
 
 class Branch(models.Model):
 	name = models.CharField(max_length=200)
@@ -110,10 +243,20 @@ class Branch(models.Model):
 
 	@classmethod
 	def get_branch(cls, data):
-		branch = Branch.objects.get(pk = data['pk_branch'])
-		data = json.loads(serializers.serialize('json', [branch]))[0]
-		data['fields']['logo'] = env.URL_LOCAL + branch.company.logo.url
-		return data
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		if Employee.check_by_token(token=data["token"]):
+			branch = Employee.search_by_token(token=data["token"]).branch
+			result["data"] = json.loads(serializers.serialize('json', [branch]))[0]
+			result["data"]['fields']['logo'] = env.URL_LOCAL + branch.company.logo.url
+			result['code'] = 200
+			result['message'] = "Success"
+			result["status"] = "OK"
+		return result
 
 	def __str__(self):
 		return f"{self.name} - {self.company.name}"
@@ -145,16 +288,25 @@ class Branch(models.Model):
 
 	@classmethod
 	def list_branch(cls, data):
-		branch = Branch.objects.get(pk=data['pk_branch'])
-		branches_except_2 = Branch.objects.exclude(pk = branch.pk, company = branch.company)
-		_data = []
-		for i in branches_except_2:
-			a = json.loads(serializers.serialize('json', [i]))[0]
-			print(a)
-			_a = a['fields']
-			_a['pk'] = a['pk']
-			_data.append(_a)
-		return _data
+		result = {
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		from user.models import Employee
+		if Employee.check_by_token(token=data["token"]):
+			_branch = Employee.search_by_token(token=data["token"]).branch
+			for branch in Branch.objects.filter(company = _branch.company):
+				a = json.loads(serializers.serialize('json', [branch]))[0]
+				_a = a['fields']
+				_a['pk'] = a['pk']
+				result['data'].append(_a)
+
+			result['code'] = 200
+			result['message'] = "Success"
+			result["status"] = "OK"
+		return result
 
 	@classmethod
 	def create_branch(cls,data):
@@ -237,35 +389,217 @@ class Branch(models.Model):
 
 	@classmethod
 	def add_branch(cls,data):
-		result = False
-		message = None
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
 		try:
-			branch = cls.objects.get(name = data['business_name'],company = Company.objects.get(pk = data['pk_company']) )
-			message = "This branch is already registered"
-		except Branch.DoesNotExist as e:
-			branch = None
-		if branch is None:
-			try:
-				branch = cls(
-					name = data['business_name'],
-					address = data['address'],
-					phone = data['phone'],
-					email = data['email'],
-					company = Company.objects.get(pk = data['pk_company'])
-				)
-				branch.save()
-				result = True
-				message = "Success"
-				result = License.create_license(data, branch)
-				Resolution.create_resolution(data, branch)
-				from customer.models import Customer as c
-				c.create_consumidor_final(branch)
-				from inventory.models import Supplier as s
-				s.create_supplier_general(branch)
-			except Exception as e:
-				message = str(e)
-		return {'result':result, 'message':message}
+			from user.models import Employee
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				_branch = employee.branch
+				branch = cls.objects.filter(pk = data["pk_branch"]).first()
+				if not branch:
+					branch = cls(
+						name = data['business_name'],
+						address = data['address'],
+						phone = data['phone'],
+						email = data['email'],
+						company = _branch.company
+					)
+					branch.save()
+					result = License.create_license(data, branch)
+					#Resolution.create_resolution(data, branch)
+					from customer.models import Customer as c
+					c.create_consumidor_final(branch)
+					from inventory.models import Supplier as s
+					s.create_supplier_general(branch)
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.BRANCH,
+						class_models_json=json.loads(serializers.serialize('json', [branch]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				else:
+					branch.name = data['business_name']
+					branch.address = data['address']
+					branch.phone = data['phone']
+					branch.email = data['email']
+					branch.save()
 
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.BRANCH,
+						class_models_json=json.loads(serializers.serialize('json', [branch]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+
+				result['code'] = 200
+				result["status"] = "OK"
+				result["message"] = "Success"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
+
+	@classmethod
+	def delete_branch(cls, data):
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		try:
+			from user.models import Employee
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				branch = cls.objects.filter(pk = data["pk_branch"]).first()
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.DELETE,
+					class_models=HistoryGeneral.BRANCH,
+					class_models_json=json.loads(serializers.serialize('json', [branch]))[0],
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+				branch.delete()
+				result['code'] = 200
+				result["status"] = "OK"
+				result["message"] = "Success"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
+
+
+class Store(models.Model):
+	name = models.CharField(max_length=200)
+	address = models.CharField(max_length = 150)
+	description = models.TextField()
+	branch = models.ForeignKey(Branch, on_delete= models.CASCADE)
+
+	@classmethod
+	def get_store(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		if Employee.check_by_token(token=data["token"]):
+			store = cls.objects.filter(pk = data["pk_store"])
+			result["data"] = json.loads(serializers.serialize('json', [store]))[0]
+			result['code'] = 200
+			result['message'] = "Success"
+			result["status"] = "OK"
+		return result
+
+	def __str__(self):
+		return f"{self.name} - {self.branch.name}"
+
+	@classmethod
+	def list_store(cls, data):
+		result = {
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		from user.models import Employee
+		if Employee.check_by_token(token=data["token"]):
+			_branch = Employee.search_by_token(token=data["token"]).branch
+			for store in cls.objects.filter(branch = _branch):
+				a = json.loads(serializers.serialize('json', [store]))[0]
+				_a = a['fields']
+				_a['pk'] = a['pk']
+				result['data'].append(_a)
+
+			result['code'] = 200
+			result['message'] = "Success"
+			result["status"] = "OK"
+		return result
+
+	@classmethod
+	def add_store(cls,data):
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		try:
+			from user.models import Employee
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				_branch = employee.branch
+				store = cls.objects.filter(pk = data["pk_store"]).first()
+				if not store:
+					store = cls(
+						name = data['store_name'],
+						address = data['address'],
+						description = data['description'],
+						branch = _branch
+					)
+					store.save()
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.STORE,
+						class_models_json=json.loads(serializers.serialize('json', [store]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				else:
+					store.name = data['store_name']
+					store.address = data['address']
+					store.description = data['description']
+					store.save()
+
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.STORE,
+						class_models_json=json.loads(serializers.serialize('json', [store]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+
+				result['code'] = 200
+				result["status"] = "OK"
+				result["message"] = "Success"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
+
+	@classmethod
+	def delete_store(cls, data):
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}	
+		try:
+			from user.models import Employee
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				store = cls.objects.filter(pk = data["pk_store"]).first()
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.UPDATE,
+					class_models=HistoryGeneral.STORE,
+					class_models_json=json.loads(serializers.serialize('json', [store]))[0],
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+				store.delete()
+				result['code'] = 200
+				result["status"] = "OK"
+				result["message"] = "Success"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
 
 
 from dateutil.relativedelta import relativedelta
@@ -530,49 +864,335 @@ class Software(models.Model):
 		return {'result':result, 'message':message}
 
 
+class SerieFolio(models.Model):
+	TYPE_DOCUMENT_CHOICES = (
+	    ('Factura de venta', 'Factura de venta'),
+	    ('Ticket de venta', 'Ticket de venta'),
+	    ('Ajuste de inventario', 'Ajuste de inventario'),
+	    ('Factura de traslado', 'Factura de traslado'),
+	)
+	type_document = models.CharField(max_length=30, choices=TYPE_DOCUMENT_CHOICES,null = True, blank = True)
+	name = models.CharField(max_length=100)
+	serie_folio_auto = models.BooleanField(default=True)
+	serie = models.CharField(max_length=30)
+	folio_from = models.IntegerField()
+	folio_to = models.IntegerField()
+	preferida = models.BooleanField(default=True)
+	pie_invoice = models.TextField()
+	next_folio = models.IntegerField(default=1)
+	state = models.BooleanField(default=True)
+	branch = models.ForeignKey(Branch, on_delete = models.CASCADE)
+
+	def __str__(self) -> str:
+		return str(self.type_document)+" | From: "+str(self.folio_from)+" | To: "+str(self.folio_to)
+	
+	@classmethod
+	def create_serie_folio(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		if Employee.check_by_token(token=data["token"]):
+			employee = Employee.search_by_token(token=data["token"])
+			try:
+				serie_folio = cls.objects.filter(pk = data["pk"]).first()
+				if not serie_folio:
+					serie_folio = cls.objects.create(
+						type_document = data["type_document"],
+						name = data["name"],
+						serie_folio_auto = data["serie_folio_auto"],
+						serie = data["serie"],
+						folio_from = data["folio_from"],
+						folio_to = data["folio_to"],
+						preferida = data["preferida"],
+						pie_invoice = data["pie_invoice"],
+						state = data["state"],
+						next_folio = data["folio_from"],
+						branch = employee.branch
+					)
+					HistoryGeneral.create_history(
+                        action=HistoryGeneral.CREATED,
+                        class_models=HistoryGeneral.RESOLUTION,
+                        class_models_json=json.loads(serializers.serialize('json', [serie_folio]))[0],
+                        employee=employee.pk,
+                        username=employee.user_django.username,
+                        branch=employee.branch.pk
+                    )
+				else:
+					serie_folio.name = data["name"]
+					serie_folio.type_document = data["type_document"]
+					serie_folio.serie_folio_auto = data["serie_folio_auto"]
+					serie_folio.serie = data["serie"]
+					serie_folio.folio_from = data["folio_from"]
+					serie_folio.folio_to = data["folio_to"]
+					serie_folio.preferida = data["preferida"]
+					serie_folio.pie_invoice = data["pie_invoice"]
+					#serie_folio.next_folio = data["folio_from"]
+					serie_folio.state = data["state"]
+
+					HistoryGeneral.create_history(
+                        action=HistoryGeneral.UPDATE,
+                        class_models=HistoryGeneral.RESOLUTION,
+                        class_models_json=json.loads(serializers.serialize('json', [serie_folio]))[0],
+                        employee=employee.pk,
+                        username=employee.user_django.username,
+                        branch=employee.branch.pk
+                    )
+				serie_folio.save()
+				result["code"] = 200
+				result["status"] = "OK"
+				result["message"] = "Success"
+			except IntegrityError as e:
+				result["message"] = str(e)
+		return result
+	@classmethod
+	def get_list_serie_folio(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido",
+            "data": []
+		}
+		if Employee.check_by_token(token=data["token"]):
+			employee = Employee.search_by_token(token=data["token"])
+			result["data"] =  [
+                {
+                    "type_document":i.type_document,
+					"name":i.name,
+					"serie_folio_auto":i.serie_folio_auto,
+					"serie":i.serie,
+					"folio_from":i.folio_from,
+					"folio_to":i.folio_to,
+					"preferida":i.preferida,
+					"pie_invoice":i.pie_invoice,
+					"state":i.state,
+					"branch":i.branch.pk,
+					"next_folio":i.next_folio,
+					"pk":i.pk
+                }
+                for i in cls.objects.filter(branch=employee.branch).order_by("-id")
+            ]
+			result["code"] = 200
+			result["status"] = "OK"
+			result["message"] = "Success"
+		return result
+	
+	@classmethod
+	def delete_serie_folio(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				_serie_folio = cls.objects.filter(pk = data["pk"])
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.DELETE,
+					class_models=HistoryGeneral.RESOLUTION,
+					class_models_json=json.loads(serializers.serialize('json', [_serie_folio.first()]))[0],
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+				_serie_folio.delete()
+				result["code"] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except IntegrityError as e:
+			result["message"] = str(e)
+		return result
+	
+	@classmethod
+	def get_serie_folio(cls, data):
+		from user.models import Employee
+		result = {
+			"data": [],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				_serie_folio = cls.objects.filter(type_document = data["type_document"], branch=employee.branch)
+				if _serie_folio:
+					for sf in _serie_folio:
+						result["data"].append({
+							"type_document":sf.type_document,
+							"name":sf.name,
+							"serie_folio_auto":sf.serie_folio_auto,
+							"serie":sf.serie,
+							"folio_from":sf.folio_from,
+							"folio_to":sf.folio_to,
+							"preferida":sf.preferida,
+							"pie_invoice":sf.pie_invoice,
+							"state":sf.state,
+							"branch":sf.branch.pk,
+							"next_folio":sf.next_folio,
+							"pk":sf.pk
+						})
+					result["code"] = 200
+					result["message"] = "Success"
+					result["status"] = "OK"
+				else:
+					result["code"] = 400
+					result["message"] = "Folio no encontrado"
+					result["status"] = "Fail"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
+
+	@classmethod
+	def increment_serie_folio(cls, data):
+		from user.models import Employee
+		result = {
+			"data": {},
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				_serie_folio = cls.objects.filter(pk=data["pk"]).first()
+				if _serie_folio:
+					_serie_folio.next_folio += 1
+					_serie_folio.save()
+					result["code"] = 200
+					result["message"] = "Success"
+					result["status"] = "OK"
+				else:
+					result["code"] = 400
+					result["message"] = "Folio no encontrado"
+					result["status"] = "Fail"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
+
 class Consecutive(models.Model):
-	pos = models.IntegerField(default = 1)
-	elec = models.IntegerField(default = 1)
-	nc = models.IntegerField(default = 1)
-	nd = models.IntegerField(default = 1)
-	ne = models.IntegerField(default = 1)
-	ds = models.IntegerField(default = 1)
-	hd = models.IntegerField(default = 1)
-	tras = models.IntegerField(default = 1)
-	nc_by_product = models.IntegerField(default = 1)
-	branch = models.OneToOneField(Branch, on_delete = models.CASCADE, unique=True)
+	pos = models.IntegerField(default = 1) # caja
+	elec = models.IntegerField(default = 1) # electronica
+	nc = models.IntegerField(default = 1) # nota credito
+	nd = models.IntegerField(default = 1) # nota debito
+	ni = models.IntegerField(default = 1) # nota ingreso
+	ne = models.IntegerField(default = 1) # nota egreso
+	rm = models.IntegerField(default = 1) # remission
+	ct = models.IntegerField(default = 1) # cotizacion
+	oc = models.IntegerField(default = 1) # orden de compra
+	se = models.IntegerField(default = 1) # servicio
+	tras = models.IntegerField(default = 1) # traslado
+	branch = models.OneToOneField(Branch, on_delete = models.CASCADE)
 
 	def __str__(self):
 		return self.branch.name
 
 	@classmethod
-	def create_consecutive(cls,branch):
-		result = False
-		message = None
+	def create_consecutive(cls, data):
+		from user.models import Employee
+		result = {
+			"data": {},
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
 		try:
-			cls(branch = branch).save()
-			result = True
-			message = "Success"
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				cons = cls.objects.filter(branch = employee.branch).first()
+				if not cons:
+					cons = cls.objects.create(branch=employee.branch)
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.RESOLUTION,
+						class_models_json=json.loads(serializers.serialize('json', [cons]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				else:
+					cons.pos = data["pos"]
+					#cons.elec = data["elec"]
+					cons.nc = data["nc"]
+					#cons.nd = data["nd"]
+					cons.ni = data["ni"]
+					cons.ne = data["ne"]
+					cons.rm = data["rm"]
+					cons.ct = data["ct"]
+					cons.oc = data["oc"]
+					cons.se = data["se"]
+					#cons.pos = data["tras"]
+					cons.save()
+
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.RESOLUTION,
+						class_models_json=json.loads(serializers.serialize('json', [cons]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				result["code"] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
 		except IntegrityError as e:
-			message = str(e)
-		return {'result':result, 'message':message}
+			result["message"] = str(e)
+		return result
 
 	@classmethod
-	def consecutive_increment(cls,type_document):
-		profit_percentages = {}
-		consecutive = {
-			'1': cls.pos,
-			'2': cls.elec,
-			'3': cls.nc,
-			'4': cls.nd,
-			'5': cls.ne,
-			'6': cls.ds,
-			'7': cls.hd,
-			'8': cls.tras,
-			'9': cls.nc_by_product,
-			'99': cls.hd
+	def consecutive_increment(cls, type_document, branch):
+		cons = cls.objects.filter(branch=branch).first()
+		if type_document == "rm":
+			cons.rm += 1
+		elif type_document == "pos":
+			cons.pos += 1
+		elif type_document == "nc":
+			cons.nc += 1
+		elif type_document == "nd":
+			cons.nd += 1
+		elif type_document == "ne":
+			cons.ne += 1
+		elif type_document == "ni":
+			cons.ni += 1
+		elif type_document == "ct":
+			cons.ct += 1
+		elif type_document == "oc":
+			cons.oc += 1	
+		elif type_document == "se":
+			cons.se += 1	
+		elif type_document == "tras":
+			cons.tras += 1	
+		cons.save()
+	
+	@classmethod
+	def get_consecutive(cls, data):
+		from user.models import Employee
+		result = {
+			"data": {},
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
 		}
-
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				consecutive = cls.objects.filter(branch=employee.branch).first()
+				if not consecutive:
+					consecutive = cls.create_consecutive(data)
+				result["data"] = json.loads(serializers.serialize('json', [consecutive]))[0]["fields"]
+				result["data"]["pk"] = consecutive.pk
+				result["code"] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except Exception as e:
+			result["message"] = str(e)
+		return result
+	
 class License(models.Model):
 	price = models.IntegerField(null = True, blank = True)
 	document = models.IntegerField(null = True, blank = True)
@@ -729,4 +1349,212 @@ class License(models.Model):
 			message = str(e)
 		return {'result':result, 'message':message}
 
+
+class Bank(models.Model):
+	BANK_NATIONAL = 'Banco nacional'
+	CREDIT_CARD = 'Tarjeta de credito'
+	EFECTIVO = 'Efectivo'
+	FOREING_BANK = "Banco extranjero"
+	TYPE_ACCOUNT = (
+	    (BANK_NATIONAL, BANK_NATIONAL),
+	    (CREDIT_CARD, CREDIT_CARD),
+	    (EFECTIVO, EFECTIVO),
+	    (FOREING_BANK, FOREING_BANK),
+	)
+	type_account = models.CharField(max_length=30, choices=TYPE_ACCOUNT, default=BANK_NATIONAL)
+	name = models.CharField(max_length=512)
+	account_number = models.CharField(max_length=512)
+	amount_init = models.FloatField()
+	amount = models.FloatField()
+	date_amount_init = models.DateField()
+	description = models.TextField()
+	branch = models.ForeignKey(Branch, on_delete = models.CASCADE)
+	NOT_CONNECT = "No conectado"
+	STATUS = (
+	    (NOT_CONNECT, NOT_CONNECT),
+	)
+	state = models.CharField(max_length=30, choices=STATUS, default=NOT_CONNECT)
+
+	def __str__(self) -> str:
+		return str(self.branch)+" | name: "+str(self.name)+" | number: "+str(self.account_number)
 	
+	@classmethod
+	def create_bank(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		if Employee.check_by_token(token=data["token"]):
+			employee = Employee.search_by_token(token=data["token"])
+			try:
+				bank = cls.objects.filter(pk = data["pk"]).first()
+				if not bank:
+					bank = cls.objects.create(
+						type_account = data["type_account"],
+						name = data["name"],
+						account_number = data["account_number"],
+						amount_init = data["amount_init"],
+						amount = data["amount_init"],
+						date_amount_init = data["date_amount_init"],
+						description = data["description"],
+						branch = employee.branch
+					)
+					_bank_json = {
+						"type_account": bank.type_account,
+						"name": bank.name,
+						"account_number": bank.account_number,
+						"amount_init": bank.amount_init,
+						"amount": bank.amount,
+						"date_amount_init": str(bank.date_amount_init),
+						"description": bank.description,
+						"branch": str(bank.branch),
+					}
+					HistoryGeneral.create_history(
+                        action=HistoryGeneral.CREATED,
+                        class_models=HistoryGeneral.BANK,
+                        class_models_json=_bank_json,
+                        employee=employee.pk,
+                        username=employee.user_django.username,
+                        branch=employee.branch.pk
+                    )
+				else:
+					bank.name = data["name"]
+					bank.type_account = data["type_account"]
+					bank.account_number = data["account_number"]
+					bank.amount_init = data["amount_init"]
+					bank.amount = data["amount_init"]
+					bank.date_amount_init = data["date_amount_init"]
+					bank.description = data["description"]
+					
+					_bank_json = {
+						"type_account": bank.type_account,
+						"name": bank.name,
+						"account_number": bank.account_number,
+						"amount_init": bank.amount_init,
+						"amount": bank.amount,
+						"date_amount_init": str(bank.date_amount_init),
+						"description": bank.description,
+						"branch": str(bank.branch),
+					}
+
+					HistoryGeneral.create_history(
+                        action=HistoryGeneral.UPDATE,
+                        class_models=HistoryGeneral.BANK,
+                        class_models_json=_bank_json,
+                        employee=employee.pk,
+                        username=employee.user_django.username,
+                        branch=employee.branch.pk
+                    )
+				bank.save()
+				result["code"] = 200
+				result["status"] = "OK"
+				result["message"] = "Success"
+			except IntegrityError as e:
+				result["message"] = str(e)
+		return result
+	@classmethod
+	def get_list_bank(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido",
+            "data": [],
+			"type_account": []
+		}
+		if Employee.check_by_token(token=data["token"]):
+			employee = Employee.search_by_token(token=data["token"])
+			from inventory.models import Product
+			result["type_account"] =  [
+                {
+					"name":i[0]
+                }
+                for i in cls.TYPE_ACCOUNT
+            ]
+			result["data"] =  [
+                {
+                    "type_account":i.type_account,
+					"name":i.name,
+					"account_number":i.account_number,
+					"amount_init":i.amount_init,
+					"date_amount_init":i.date_amount_init,
+					"description":i.description,
+					"balance":i.amount,
+					"balance_money":Product.format_price(i.amount),
+					"state":i.state,
+					"pk":i.pk
+                }
+                for i in cls.objects.filter(branch=employee.branch).order_by("-id")
+            ]
+			result["code"] = 200
+			result["status"] = "OK"
+			result["message"] = "Success"
+		return result
+	
+	@classmethod
+	def delete_bank(cls, data):
+		from user.models import Employee
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				bank = cls.objects.filter(pk = data["pk"])
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.DELETE,
+					class_models=HistoryGeneral.BANK,
+					class_models_json=json.loads(serializers.serialize('json', [bank.first()]))[0],
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+				bank.delete()
+				result["code"] = 200
+				result["message"] = "Success"
+				result["status"] = "OK"
+		except IntegrityError as e:
+			result["message"] = str(e)
+		return result
+	
+	@classmethod
+	def get_bank(cls, data):
+		from user.models import Employee
+		result = {
+			"data": {},
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(token=data["token"])
+				from inventory.models import Product
+				bank = cls.objects.filter(pk = data["pk"], branch=employee.branch).first()
+				if bank:
+					result["data"] = {
+						"type_account":bank.type_account,
+						"name":bank.name,
+						"account_number":bank.account_number,
+						"amount_init":bank.amount_init,
+						"balance":bank.amount,
+						"balance_money":Product.format_price(bank.amount),
+						"date_amount_init":bank.date_amount_init,
+						"description":bank.description,
+						"branch":bank.branch,
+						"pk":bank.pk
+					}
+					result["code"] = 200
+					result["message"] = "Success"
+					result["status"] = "OK"
+				else:
+					result["code"] = 400
+					result["message"] = "Banco no encontrado"
+					result["status"] = "Fail"
+		except Exception as e:
+			result["message"] = str(e)
+		return result

@@ -3,7 +3,6 @@ from .views import *
 
 urlpatterns=[
 	url(r'^Create_Product/$',Create_Product,name="Create_Product"),
-	url(r'^Update_Product/$',Update_Product,name="Update_Product"),
 	url(r'^Delete_Product/$',Delete_Product,name="Delete_Product"),
 	url(r'^Product_Reserved_User/$',Product_Reserved_User,name="Product_Reserved_User"),
 	url(r'^Return_Products/$',Return_Products,name="Return_Products"),
@@ -16,11 +15,13 @@ urlpatterns=[
 	url(r'^Get_Product/$',Get_Product,name="Get_Product"),
 	url(r'^Get_Category/$',Get_Category,name="Get_Category"),
 	url(r'^Get_SubCategory/$',Get_SubCategory,name="Get_SubCategory"),
+    url(r'^Get_SubCategoryByBranch/$',Get_SubCategoryByBranch,name="Get_SubCategoryByBranch"),
+    url(r'^Create_SubCategoryByBranch/$',Create_SubCategoryByBranch,name="Create_SubCategoryByBranch"),
+    url(r'^Delete_SubCategoryByBranch/$',Delete_SubCategoryByBranch,name="Delete_SubCategoryByBranch"),
 	url(r'^Get_List_Products_Supplier/$',Get_List_Products_Supplier,name="Get_List_Products_Supplier"),
 
 	
 	url(r'^Create_Supplier/$',Create_Supplier,name="Create_Supplier"),
-	url(r'^Update_Supplier/$',Update_Supplier,name="Update_Supplier"),
 	url(r'^Delete_Supplier/$',Delete_Supplier,name="Delete_Supplier"),
 	url(r'^List_Supplier/$',List_Supplier,name="List_Supplier"),
 	url(r'^Get_Supplier/$',Get_Supplier,name="Get_Supplier"),

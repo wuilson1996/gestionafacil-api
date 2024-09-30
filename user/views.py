@@ -1,6 +1,6 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Employee
+from .models import Employee, CheckUser
 
 @api_view(['POST'])
 def Create_Employee(request):
@@ -42,3 +42,7 @@ def Query_Permissions(request):
 @api_view(['GET'])
 def Get_List_Email(request):
 	return Response(Employee.get_list_email(request.data))
+
+@api_view(['POST'])
+def Check_Email_User_With_Code(request):
+	return Response(CheckUser.check_email_user_with_code(request.data))

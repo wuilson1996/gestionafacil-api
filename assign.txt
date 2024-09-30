@@ -1,0 +1,5 @@
+{
+    'success': False,
+    'credit': -1,
+    'message': 'The user is on demand type'
+}

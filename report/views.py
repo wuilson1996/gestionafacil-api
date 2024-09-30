@@ -8,6 +8,26 @@ def Report_Invoices(request):
 	return Response(Report_Invoice.list_invoice(request.data))
 
 @api_view(['GET'])
+def Report_Invoices_by_item(request):
+	return Response(Report_Invoice.list_invoice_by_item(request.data))
+
+@api_view(['GET'])
+def Report_Invoices_by_client(request):
+	return Response(Report_Invoice.list_invoice_by_client(request.data))
+
+@api_view(['GET'])
+def Report_Invoices_by_seller(request):
+	return Response(Report_Invoice.list_invoice_by_seller(request.data))
+
+@api_view(['GET'])
+def Report_Invoices_by_item_profit(request):
+	return Response(Report_Invoice.list_invoice_by_item_profit(request.data))
+
+@api_view(['GET'])
+def Report_Invoices_by_account(request):
+	return Response(Report_Invoice.list_invoice_by_account(request.data))
+
+@api_view(['GET'])
 def Report_Invoice_Annulled(request):
 	return Response(Report_Invoice.list_invoice_annulled(request.data))
 

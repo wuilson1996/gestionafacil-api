@@ -1,13 +1,14 @@
 from django.http import JsonResponse
 from django.core import serializers
 from django.db import IntegrityError
-from company.models import Branch
+from company.models import Branch, Store
 from django.db.models import Sum
 from user.models import Employee
 from django.db import models
 from setting.models import *
 from datetime import date as _date
 import json
+from django.conf import settings
 
 class Supplier(models.Model):
 	documentI = models.CharField(max_length=50, null = True, blank = True)
@@ -38,7 +39,8 @@ class Supplier(models.Model):
 			#print("Create supplier")
 			#print(data)
 			if Employee.check_by_token(data["token"]):
-				branch = Employee.search_by_token(token=data["token"]).branch
+				employee = Employee.search_by_token(token=data["token"])
+				branch = employee.branch
 				supplier = cls.objects.filter(pk = data['pk_supplier'] if data["pk_supplier"] != "" else 0, branch = branch).first()
 				if not supplier:
 					supplier = cls(
@@ -56,6 +58,15 @@ class Supplier(models.Model):
 						Associate_Person.create_associate_person(data['associate_person'], supplier)
 					if data['commercial_information']:
 						Commercial_Information.create_commercial_information(data['commercial_information'], supplier)
+
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.PROVIDER,
+						class_models_json=json.loads(serializers.serialize('json', [supplier]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
 				else:
 					supplier.documentI = data['identification_number']
 					supplier.name = data['name']
@@ -70,6 +81,15 @@ class Supplier(models.Model):
 					#if data['commercial_information']:
 					Commercial_Information.create_commercial_information(data['commercial_information'], supplier)
 
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.PROVIDER,
+						class_models_json=json.loads(serializers.serialize('json', [supplier]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+					
 				result['code'] = 200
 				result['status'] = 'OK'
 				result['message'] = "Success"
@@ -91,31 +111,18 @@ class Supplier(models.Model):
 				branch = branch
 			)
 			supplier.save()
+			employee = Employee.objects.filter(branch=branch).first()
+			HistoryGeneral.create_history(
+				action=HistoryGeneral.CREATED,
+				class_models=HistoryGeneral.PROVIDER,
+				class_models_json=json.loads(serializers.serialize('json', [supplier]))[0],
+				employee=employee.pk,
+				username=employee.user_django.username,
+				branch=employee.branch.pk
+			)
 			result['code'] = 200
 			result['status'] = 'OK'
 			result['message'] = "Success"
-		except Exception as e:
-			result['message'] = str(e)
-		return result
-
-	@classmethod
-	def update_supplier(cls,data):
-		result = {
-			"code": 400,
-			"status": "Fail",
-			"message": "Token no valido"
-		}
-		try:
-			if Employee.check_by_token(data["token"]):
-				supplier = cls.objects.get(pk = data['pk_supplier'])
-				supplier.documentI = data['documentI']
-				supplier.name = data['name']
-				supplier.email = data['email']
-				supplier.phone = data['phone']
-				supplier.save()
-				result['code'] = 200
-				result['status'] = 'OK'
-				result['message'] = "Success"
 		except Exception as e:
 			result['message'] = str(e)
 		return result
@@ -185,8 +192,18 @@ class Supplier(models.Model):
 		}
 		try:
 			if Employee.check_by_token(token=data["token"]):
-				branch = employee = Employee.search_by_token(data['token']).branch
-				cls.objects.get(branch = branch, pk = data['pk_suppplier']).delete()
+				employee = Employee.search_by_token(data['token'])
+				branch = employee.branch
+				_supplier = cls.objects.get(branch = branch, pk = data['pk_suppplier'])
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.CREATED,
+					class_models=HistoryGeneral.PROVIDER,
+					class_models_json=json.loads(serializers.serialize('json', [_supplier]))[0],
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+				_supplier.delete()
 				result['code'] = 200
 				result['status'] = 'OK'
 				result['message'] = "Success"
@@ -270,28 +287,12 @@ class Associate_Person(models.Model):
 				"phone2": a_s.phone_2
 			})
 		return associate_person
-	
-	
-
-class List_Price(models.Model):
-	name = models.CharField(max_length = 50)
-	percent = models.IntegerField()
-	supplier = models.ForeignKey(Supplier, on_delete = models.CASCADE)
-
-	def __str__(self):
-		return f'{self.name} - {self.percent} by {self.supplier.name}'
-
-	@classmethod
-	def get_list_price(cls, supplier, data):
-		try:
-			price, created = cls.objects.get(supplier=supplier, name=data['name'])
-		except cls.DoesNotExist:
-			price = cls(name=data['name'], percent=data['percent'], supplier=supplier); price.save()
-		return price
 
 class Commercial_Information(models.Model):
 	payment_deadline = models.CharField(max_length = 50)
-	list_price = models.ForeignKey(List_Price, on_delete = models.CASCADE, related_name='supplier_list_price')
+	list_price = models.ForeignKey(List_Price, on_delete = models.CASCADE, related_name='supplier_list_price', null=True, blank=True)
+	seller_info = models.ForeignKey(SellerInfo, on_delete = models.CASCADE, related_name='supplier_seller', null=True, blank=True)
+	term_payment = models.ForeignKey(TermPayment, on_delete = models.CASCADE, related_name='supplier_term_payment', null=True, blank=True)
 	cfdi = models.ForeignKey(CFDI, on_delete = models.CASCADE, related_name='supplier_cfdi')
 	payment_method = models.ForeignKey(Payment_Method, on_delete = models.CASCADE, related_name='supplier_payment_method')
 	payment_form = models.ForeignKey(Payment_Form, on_delete = models.CASCADE, related_name='supplier_payment_form')
@@ -304,9 +305,12 @@ class Commercial_Information(models.Model):
 		try:
 			commercial_information = cls.objects.filter(pk=data["ci_pk"] if data["ci_pk"] != "" else 0).first()
 			if not commercial_information:
+				_term_payment = TermPayment.objects.filter(pk = data["pk_term_payment"]).first()
 				cp = cls(
-					payment_deadline = data['payment_deadline'],
-					list_price = List_Price.get_list_price(supplier, {"name":"test", "percent":0}),
+					payment_deadline = _term_payment.name if _term_payment else "",
+					list_price = List_Price.objects.filter(pk = data["pk_list_price"]).first(),
+					seller_info = SellerInfo.objects.filter(pk = data['pk_seller']).first(),
+					term_payment = _term_payment,
 					cfdi = CFDI.objects.get(pk = data['cfdi']),
 					payment_method = Payment_Method.objects.get(pk = data['payment_method']),
 					payment_form = Payment_Form.objects.get(pk = data['payment_form']),
@@ -314,8 +318,11 @@ class Commercial_Information(models.Model):
 				)
 				cp.save()
 			else:
-				commercial_information.payment_deadline = data['payment_deadline']
-				#commercial_information.list_price = List_Price.get_list_price(customer, {"name":"test", "percent":0})
+				_term_payment = TermPayment.objects.filter(pk = data["pk_term_payment"]).first()
+				commercial_information.payment_deadline = _term_payment.name if _term_payment else ""
+				commercial_information.list_price = List_Price.objects.filter(pk = data["pk_list_price"]).first()
+				commercial_information.seller_info = SellerInfo.objects.filter(pk = data['pk_seller']).first()
+				commercial_information.term_payment = _term_payment
 				commercial_information.cfdi = CFDI.objects.get(pk = data['cfdi'])
 				commercial_information.payment_method = Payment_Method.objects.get(pk = data['payment_method'])
 				commercial_information.payment_form = Payment_Form.objects.get(pk = data['payment_form'])
@@ -337,6 +344,10 @@ class Commercial_Information(models.Model):
 				"payment_deadline": ci.payment_deadline,
 				"list_price": ci.list_price.pk,
 				"list_price_name": ci.list_price.name,
+				"seller": ci.seller_info.pk,
+				"seller_name": ci.seller_info.name,
+				"term_payment": ci.term_payment.pk,
+				"term_payment_name": ci.term_payment.name,
 				"cfdi": ci.cfdi.pk,
 				"cfdi_name": ci.cfdi.name,
 				"payment_method": ci.payment_method.pk,
@@ -347,7 +358,7 @@ class Commercial_Information(models.Model):
 		return commercial_information
 
 class Category(models.Model):
-	name = models.CharField(max_length = 150, unique= True)
+	name = models.CharField(max_length = 150)
 
 	def __str__(self):
 		return self.name
@@ -357,7 +368,7 @@ class Category(models.Model):
 		category = cls(name = data['category'])
 		category.save()
 		for i in data['data']:
-			if not create_subcategory(cls,i['name'],category.pk)['result']:
+			if not cls.create_subcategory(cls,i['name'],category.pk)['result']:
 				break
 
 	@classmethod
@@ -371,8 +382,10 @@ class Category(models.Model):
 		]
 
 class SubCategory(models.Model):
-	name = models.CharField(max_length = 150, unique = True)
+	name = models.CharField(max_length = 150)
+	description = models.CharField(max_length=256)
 	category = models.ForeignKey(Category, on_delete = models.CASCADE)
+	branch = models.ForeignKey(Branch, on_delete = models.CASCADE, blank=True, null=True)
 
 	def __str__(self):
 		return self.name
@@ -380,7 +393,6 @@ class SubCategory(models.Model):
 	@classmethod
 	def create_subcategory(cls,name,pk):
 		result = {
-			"data": {},
 			"code": 400,
 			"status": "Fail",
 			"message": "Token no valido"
@@ -394,6 +406,60 @@ class SubCategory(models.Model):
 			result['message'] = str(e)
 		return result
 
+	@classmethod
+	def create_subcategory_by_branch(cls, data):
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(data['token'])
+				_sub_category = cls.objects.filter(pk = data["pk"]).first()
+				if not _sub_category:
+					category = Category.objects.create(
+						name = data["name"]
+					)
+					_sub_category = cls.objects.create(
+						name = data["name"], 
+						description=data["description"], 
+						category=category, 
+						branch=employee.branch
+					)
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.CATEGORY,
+						class_models_json=json.loads(serializers.serialize('json', [_sub_category]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				else:
+					_category = _sub_category.category
+					_category.name = data["name"]
+					_category.save()
+
+					_sub_category.name = data["name"]
+					_sub_category.description = data["description"]
+					_sub_category.save()
+
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.CATEGORY,
+						class_models_json=json.loads(serializers.serialize('json', [_sub_category]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+
+				result['code'] = 200
+				result['status'] = 'OK'
+				result['message'] = "Success"
+		except IntegrityError as e:
+			result['message'] = str(e)
+			print(e)
+		return result
 
 	@classmethod
 	def get_list_subcategory(cls, data):
@@ -406,9 +472,61 @@ class SubCategory(models.Model):
 			data['pk_sub'] = subc[0]['pk']
 			list_sub.append(data)
 		return list_sub
+	
+	@classmethod
+	def get_list_subcategory_by_branch(cls, data):
+		result = {
+			"data":[],
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		if Employee.check_by_token(token=data["token"]):
+			employee = Employee.search_by_token(data['token'])
+			for c in cls.objects.filter(branch=employee.branch):
+				_data1 = json.loads(serializers.serialize('json', [c]))[0]
+				_data = _data1['fields']
+				_data["pk"] = _data1["pk"]
+				result["data"].append(_data)
 
+			result['code'] = 200
+			result['status'] = 'OK'
+			result['message'] = "Success"
+		return result
+	
+	@classmethod
+	def delete_subcategory_by_branch(cls, data):
+		result = {
+			"code": 400,
+			"status": "Fail",
+			"message": "Token no valido"
+		}
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(data['token'])
+				_sub_category = cls.objects.filter(pk = data["pk"]).first()
+				HistoryGeneral.create_history(
+					action=HistoryGeneral.DELETE,
+					class_models=HistoryGeneral.CATEGORY,
+					class_models_json=json.loads(serializers.serialize('json', [_sub_category]))[0],
+					employee=employee.pk,
+					username=employee.user_django.username,
+					branch=employee.branch.pk
+				)
+
+				_sub_category.category.delete()
+				#_sub_category.delete()
+
+				result['code'] = 200
+				result['status'] = 'OK'
+				result['message'] = "Success"
+		except IntegrityError as e:
+			result['message'] = str(e)
+		return result
+	
 class Product(models.Model):
 	code = models.CharField(max_length = 30)
+	code_in = models.CharField(max_length = 50)
 	name = models.CharField(max_length = 150)
 	quantity = models.IntegerField()
 	quantity_unit = models.IntegerField(default=0, null = True, blank = True)
@@ -416,6 +534,7 @@ class Product(models.Model):
 	price_1 = models.FloatField()
 	price_2 = models.FloatField()
 	price_3 = models.FloatField()
+	price_init = models.FloatField(default=0)
 	tax = models.ForeignKey(Tax, on_delete=models.SET_NULL, null=True)
 	unit_measure = models.ForeignKey(UnitMeasure, on_delete=models.SET_NULL, null=True)
 	cost = models.FloatField()
@@ -425,8 +544,20 @@ class Product(models.Model):
 	subcategory = models.ForeignKey(SubCategory, on_delete = models.CASCADE, null=True, blank=True)
 	supplier = models.ForeignKey(Supplier, on_delete = models.CASCADE, null = True, blank = True)
 	type_product = models.BooleanField(default=True)
+	inventory = models.BooleanField(default=True)
+	negative_sale = models.BooleanField(default=True)
 	description = models.TextField()
-	
+	PS = "Producto o Servicio"
+	GASTO = "Gasto"
+	ACTIVO = "Activo"
+	ITEM_TYPE = (
+		(PS, "Producto o Servicio"),
+		(GASTO, "Gasto"),
+		(ACTIVO, "Activo"),
+	)
+	item_type = models.TextField(choices=ITEM_TYPE, default=PS)
+	image = models.ImageField(upload_to="product", null=True, blank=True)
+	image_b64 = models.TextField(null=True, blank=True)
 
 	def __str__(self):
 		return f"Product: {self.name} - Branch: {self.branch.name}"
@@ -500,6 +631,30 @@ class Product(models.Model):
 			i.delete()
 
 	@classmethod
+	def save_file(cls, data):
+		import base64
+		import random
+		_name_file = data["name_file"].split(".")[-2]
+		_ext = data["name_file"].split(".")[-1]
+		_name_file = _name_file+str(random.randint(100000, 999999))+"."+str(_ext)
+		with open("media/product/"+_name_file, "wb") as file:
+			file.write(base64.b64decode(bytes(data["file"], "utf-8") + b'=='))
+
+		return _name_file
+
+	@classmethod
+	def clear_money(cls, price:str):
+		return price.replace('$', "").replace(",", "")
+	
+	@classmethod
+	def format_price(cls, price):
+		price = str(price)
+		clean_price = cls.clear_money(price)
+		number = float(clean_price)
+		formatted_price = "${:,.2f}".format(number)
+		return formatted_price
+
+	@classmethod
 	def create_product(cls,data):
 		result = {
 			"data": {},
@@ -507,109 +662,91 @@ class Product(models.Model):
 			"status": "Fail",
 			"message": "Token no valido"
 		}
-		if Employee.check_by_token(token=data["token"]):
-			employee = Employee.search_by_token(data['token'])
-			branch = employee.branch
+		try:
+			if Employee.check_by_token(token=data["token"]):
+				employee = Employee.search_by_token(data['token'])
+				branch = employee.branch
 
-			if data['excel'] == 1:
-				cls.Delete_Product_All(cls, branch)
+				if data['excel'] == 1:
+					cls.Delete_Product_All(cls, branch)
 
-			product = cls.objects.filter(branch = branch, code = data['code']).first()
-			if product is None:
-				try:
-					print(data)
-					product = cls(
+				#print(data)
+				product = cls.objects.filter(branch = branch, pk = data['pk']).first()
+				_file = ""
+				if data["file"] != None:
+					_file = cls.save_file(data)
+				print(_file)
+				if product is None:
+					product = cls.objects.create(
 						code = data['code'],
+						code_in = data["code_in"],
 						name = data['name'],
 						quantity = data['quantity'],
 						tax = Tax.objects.filter(pk=data['tax']).first(),
 						unit_measure = UnitMeasure.objects.filter(pk=data["unit_measure"]).first(),
-						cost = data['cost'],
-						price_1 = data['price_1'],
+						cost = cls.clear_money(data['cost']),
+						price_1 = cls.clear_money(data['price_1']),
 						price_2 = data['price_2'],
 						price_3 = data['price_3'],
+						price_init = cls.clear_money(data["price_init"]),
 						ipo = data['ipo'],
 						discount = data['discount'],
 						branch = employee.branch,
 						subcategory = SubCategory.objects.filter(pk = data['pk_subcategory']).first(),
 						supplier = Supplier.objects.filter(pk = data['pk_supplier'], branch=branch).first(),
 						type_product = True if data["type_product"] == "true" else False,
-						description = data["description"]
+						description = data["description"],
+						#store = Store.objects.filter(pk = data["pk_store"]).first(),
+						item_type = data["item_type"],
+						inventory = data["inventoryProduct"],
+						negative_sale = data["negativeSale"]
 					)
+					if _file != "":
+						product.image = "product/"+_file
+					if data["file"]:
+						product.image_b64 = data["file"]
 					product.save()
 					branch = employee.branch
-					message = "Success"
-					serialized_employee = serializers.serialize('json', [employee])
-					employee = json.loads(serialized_employee)
-					History_Product.register_movement('Created', {}, data, employee ,branch)
-					result['code'] = 200
-					result['status'] = 'OK'
-					result['message'] = "Success"
-				except Exception as e:
-					result['message'] = str(e)
-			else:
-				original_values = json.loads(serializers.serialize('json', [product]))[0]['fields']
-				
-				product.name = data['name']
-				product.quantity = data['quantity']
-				product.tax = Tax.objects.filter(pk=data['tax']).first()
-				product.unit_measure = UnitMeasure.objects.filter(pk=data["unit_measure"]).first()
-				product.cost = data['cost']
-				product.price_1 = data['price_1']
-				product.discount = data['discount']
-				product.type_product = True if data["type_product"] == "true" else False
-				product.description = data["description"]
-				product.save()
 
-				serialized_employee = serializers.serialize('json', [employee])
-				employee = json.loads(serialized_employee)
-				modified_values = {}
-				for key, value in data.items():
-					try:
-						if int(original_values[key]) != value:
-							modified_values[key] = original_values[key]
-					except Exception as e:
-						pass
-				
-				History_Product.register_movement('Modified', modified_values, data, employee, branch)
+					for a in data["store"]:
+						ProductInStore.product_in_store_create(a, product)
 
-				result['code'] = 200
-				result['status'] = 'OK'
-				result['message'] = "Success"
-		return result
+					for p in data["price_list"]:
+						PriceByProduct.price_by_product_create(p, product)
 
-	@classmethod
-	def update_product(cls, data):
-		result = {
-			"data": {},
-			"code": 400,
-			"status": "Fail",
-			"message": "Token no valido"
-		}
-		if Employee.check_by_token(token=data["token"]):
-			employee = Employee.search_by_token(data['token'])
-			branch = employee.branch
-			product = cls.objects.filter(branch=branch, code=data['code']).first()
-			if product is not None:
-				original_values = json.loads(serializers.serialize('json', [product]))[0]['fields']
-				try:
-					product.code = data['code']
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.CREATED,
+						class_models=HistoryGeneral.INVENTORY,
+						class_models_json=json.loads(serializers.serialize('json', [product]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				else:
+					original_values = json.loads(serializers.serialize('json', [product]))[0]['fields']
+					
+					product.code = data["code"]
+					product.code_in = data["code_in"]
 					product.name = data['name']
 					product.quantity = data['quantity']
-					product.tax = data['tax']
-					product.cost = data['cost']
-					product.price_1 = data['price_1']
-					product.price_2 = data['price_2']
-					product.price_3 = data['price_3']
-					product.ipo = data['ipo']
+					product.tax = Tax.objects.filter(pk=data['tax']).first()
+					product.unit_measure = UnitMeasure.objects.filter(pk=data["unit_measure"]).first()
+					product.price_init = cls.clear_money(data["price_init"])
+					product.cost = cls.clear_money(data['cost'])
+					product.price_1 = cls.clear_money(data['price_1'])
 					product.discount = data['discount']
-					product.branch = branch
-					product.subcategory = SubCategory.objects.filter(pk=data['pk_subcategory']).first()
-					product.supplier = Supplier.objects.filter(pk=data['pk_supplier']).first()
 					product.type_product = True if data["type_product"] == "true" else False
+					product.description = data["description"]
+					#product.store = Store.objects.filter(pk = data["pk_store"]).first()
+					product.item_type = data["item_type"]
+					product.inventory = data["inventoryProduct"]
+					product.negative_sale = data["negativeSale"]
+					if _file != "":
+						product.image = "product/"+_file
+					if data["file"]:
+						product.image_b64 = data["file"]
 					product.save()
-					serialized_employee = serializers.serialize('json', [employee])
-					employee = json.loads(serialized_employee)
+
 					modified_values = {}
 					for key, value in data.items():
 						try:
@@ -618,16 +755,47 @@ class Product(models.Model):
 						except Exception as e:
 							pass
 					
-					History_Product.register_movement('Modified', modified_values, data, employee, branch)
-					result['code'] = 200
-					result['status'] = 'OK'
-					result['message'] = "Success"
-				except Exception as e:
-					result['message'] = str(e)
-			else:
-				result["message"] = "Product not exist"
-		return result
+					# validacion de objects borrados y nuevos.
+					for pins in ProductInStore.objects.filter(product=product):
+						state_delete = True
+						for a in data["store"]:
+							if int(pins.pk) == int(a["pk"]):
+								state_delete = False
+								break
+						if state_delete:
+							pins.delete()
 
+					for a in data["store"]:
+						ProductInStore.product_in_store_create(a, product)
+
+					for pbys in PriceByProduct.objects.filter(product=product):
+						state_delete = True
+						for a in data["price_list"]:
+							if int(pbys.pk) == int(a["pk"]):
+								state_delete = False
+								break
+						if state_delete:
+							pbys.delete()
+
+					for p in data["price_list"]:
+						PriceByProduct.price_by_product_create(p, product)
+
+					HistoryGeneral.create_history(
+						action=HistoryGeneral.UPDATE,
+						class_models=HistoryGeneral.INVENTORY,
+						class_models_json=json.loads(serializers.serialize('json', [product]))[0],
+						employee=employee.pk,
+						username=employee.user_django.username,
+						branch=employee.branch.pk
+					)
+				result['code'] = 200
+				result['status'] = 'OK'
+				result['message'] = "Success"
+				result["data"]["pk"] = product.pk
+		except Exception as err:
+			result['message'] = str(err)
+			print(err)
+		return result
 
 	@classmethod
 	def delete_product(cls,data):
@@ -640,12 +808,20 @@ class Product(models.Model):
 		employee = Employee.search_by_token(data['token'])
 		branch = employee.branch
 		try:
-			_product = cls.objects.get(branch = branch, code = data['code'])
-			serialized_employee = serializers.serialize('json', [employee])
-			employee = json.loads(serialized_employee)
+			_product = cls.objects.get(branch = branch, pk = data['pk'])
+			#serialized_employee = serializers.serialize('json', [employee])
+			#employee = json.loads(serialized_employee)
 			serialized_product = serializers.serialize('json', [_product])
-			product = json.loads(serialized_product)[0]['fields']
-			History_Product.register_movement(action='Deleted', modified_values=product, product=product, employee=employee, branch=branch)
+			product = json.loads(serialized_product)[0]
+			HistoryGeneral.create_history(
+				action=HistoryGeneral.DELETE,
+				class_models=HistoryGeneral.INVENTORY,
+				class_models_json=product,
+				employee=employee.pk,
+				username=employee.user_django.username,
+				branch=employee.branch.pk
+			)
+			#History_Product.register_movement(action='Deleted', modified_values=product, product=product, employee=employee, branch=branch)
 			_product.delete()
 			result['code'] = 200
 			result['status'] = 'OK'
@@ -684,9 +860,33 @@ class Product(models.Model):
 		}
 		if Employee.check_by_token(token=data["token"]):
 			branch = Employee.search_by_token(data['token']).branch
-			for i in cls.objects.filter(branch = branch):
-				product = serialized_employee = serializers.serialize('json', [i])
-				result["data"].append(json.loads(product)[0]['fields'])
+			for i in cls.objects.filter(branch = branch).order_by("-id"):
+				if i.item_type in data["item_type"]:
+					product = serialized_employee = serializers.serialize('json', [i])
+					_product_data = json.loads(product)[0]['fields']
+					_product_data["pk"] = i.pk
+					_product_data["price_1_money"] = cls.format_price(float(i.price_1))
+					_product_data["cost_money"] = cls.format_price(float(i.cost))
+					#_store = Store.objects.filter(pk = _product_data["store"]).first()
+					#_product_data["store_name"] = _store.name if _store else ""
+					_product_data["store_list"] = []
+					_product_data["store"] = []
+					for sl in ProductInStore.objects.filter(product=i):
+						aux_store_list = json.loads(serializers.serialize('json', [sl]))[0]['fields']
+						aux_store_list["pk"] = sl.pk
+						_product_data["store_list"].append(aux_store_list)
+						_product_data["store"].append(sl.store.pk)
+
+					_product_data["price_list"] = []
+					for pbp in PriceByProduct.objects.filter(product=i):
+						aux_price_list = json.loads(serializers.serialize('json', [pbp]))[0]['fields']
+						aux_price_list["pk"] = pbp.pk
+						_product_data["price_list"].append(aux_price_list)
+					result["data"].append(_product_data)
+
+			result['code'] = 200
+			result['status'] = 'OK'
+			result['message'] = "Success"
 		return result
 
 	@classmethod
@@ -703,6 +903,7 @@ class Product(models.Model):
 			for i in cls.objects.filter(branch = branch, supplier = Supplier.objects.filter(pk = data['pk_supplier']).first()):
 				product = serialized_employee = serializers.serialize('json', [i])
 				result['data'].append(json.loads(product)[0]['fields'])
+				result["data"]["pk"] = i.pk
 			result['code'] = 200
 			result['status'] = 'OK'
 			result['message'] = "Success"
@@ -713,10 +914,11 @@ class Product(models.Model):
 	def get_product(cls, data):
 		employee = Employee.search_by_token(data['token'])
 		branch = employee.branch
-		_product = cls.objects.get(branch = branch, code = data['code'])
-		product = serialized_employee = serializers.serialize('json', [_product])
+		_product = cls.objects.get(branch = branch, pk = data['pk'])
+		product = serializers.serialize('json', [_product])
 		data = json.loads(product)[0]['fields']
-		print(data)
+		data["pk"] = _product.pk
+		#print(data)
 		data['pk_cat'] = SubCategory.objects.filter(pk = data['subcategory']).first().category.pk if SubCategory.objects.filter(pk = data['subcategory']).first() else ""
 		data['category'] = SubCategory.objects.filter(pk = data['subcategory']).first().category.name if SubCategory.objects.filter(pk = data['subcategory']).first() else ""
 		data['pk_subcategory'] = SubCategory.objects.filter(pk = data['subcategory']).first().pk if SubCategory.objects.filter(pk = data['subcategory']).first() else ""
@@ -725,11 +927,75 @@ class Product(models.Model):
 		data['supplier'] = Supplier.objects.filter(pk = data['supplier']).first().name if Supplier.objects.filter(pk = data['supplier']).first() else ""
 		data['calculate_profit_percentages'] = cls.calculate_profit_percentages_one_quantity(_product)
 		data['calculate_profit_amount'] = cls.calculate_profit_amount(_product)
+		data["image"] = settings.URL_API+"/media/"+data["image"]
+
+		data["store_list"] = []
+		for sl in ProductInStore.objects.filter(product=_product):
+			aux_store_list = json.loads(serializers.serialize('json', [sl]))[0]['fields']
+			aux_store_list["pk"] = sl.pk
+			data["store_list"].append(aux_store_list)
+
+		data["price_list"] = []
+		for pbp in PriceByProduct.objects.filter(product=_product):
+			aux_price_list = json.loads(serializers.serialize('json', [pbp]))[0]['fields']
+			aux_price_list["pk"] = pbp.pk
+			data["price_list"].append(aux_price_list)
+
 		data['pk_category'] = data['pk_cat']
 		#result['list_subcategory'] = SubCategory.get_list_subcategory(data)
 		data['pk_employee'] = employee.pk
 		#result['list_supplier'] = Supplier.list_supplier(data)
 		return data
+
+class ProductInStore(models.Model):
+	product = models.ForeignKey(Product, on_delete = models.CASCADE)
+	store = models.ForeignKey(Store, on_delete = models.CASCADE, null = True, blank = True)
+	cant_init = models.FloatField(default=0)
+	cant_min = models.FloatField(default=0)
+	cant_max = models.FloatField(default=0)
+
+	def __str__(self) -> str:
+		return str(self.product)
+
+	@classmethod
+	def product_in_store_create(cls, data, product:Product):
+		_product_in_store = cls.objects.filter(pk = data["pk"]).first()
+		if not _product_in_store:
+			_product_in_store = cls.objects.create(
+				product = product,
+				store = Store.objects.filter(pk = data["store"]).first(),
+				cant_init = data["cant_init"],
+				cant_min = data["cant_min"],
+				cant_max = data["cant_max"]
+			)
+		else:
+			_product_in_store.store = Store.objects.filter(pk = data["store"]).first()
+			_product_in_store.cant_init = data["cant_init"]
+			_product_in_store.cant_min = data["cant_min"]
+			_product_in_store.cant_max = data["cant_max"]
+			_product_in_store.save()
+
+class PriceByProduct(models.Model):
+	product = models.ForeignKey(Product, on_delete = models.CASCADE)
+	list_price = models.ForeignKey(List_Price, on_delete = models.CASCADE)
+	valor = models.FloatField(default=0)
+
+	def __str__(self) -> str:
+		return str(self.product)
+	
+	@classmethod
+	def price_by_product_create(cls, data, product:Product):
+		_product_in_store = cls.objects.filter(pk = data["pk"]).first()
+		if not _product_in_store:
+			_product_in_store = cls.objects.create(
+				product = product,
+				list_price = List_Price.objects.filter(pk = data["price"]).first(),
+				valor = data["valor"]
+			)
+		else:
+			_product_in_store.list_price = List_Price.objects.filter(pk = data["price"]).first()
+			_product_in_store.valor = data["valor"]
+			_product_in_store.save()
 
 class Best_Selling_Product(models.Model):
 	product = models.ForeignKey(Product, on_delete = models.CASCADE)

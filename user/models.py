@@ -9,7 +9,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.db.models import Q
 import json, env
-
+from invoice.app_email import *
+from django.conf import settings
 
 class Employee(models.Model):
     type_worker_id = models.ForeignKey(Type_Worker, on_delete = models.CASCADE, null = True, blank = True)
@@ -18,7 +19,7 @@ class Employee(models.Model):
     municipality_id = models.ForeignKey(Municipalities, on_delete = models.CASCADE, null = True, blank = True)
     type_contract_id = models.ForeignKey(Type_Contract, on_delete = models.CASCADE, null = True, blank = True)
     high_risk_pension = models.BooleanField(default = False)
-    identification_number = models.IntegerField()
+    identification_number = models.CharField(max_length=150, blank=True, null=True)
     surname = models.CharField(max_length=255)
     second_surname = models.CharField(max_length=255, null = True, blank = True)
     first_name = models.CharField(max_length=255)
@@ -34,7 +35,8 @@ class Employee(models.Model):
     login_attempts = models.PositiveIntegerField(default=0)
     permission = models.ManyToManyField(Permission, blank = True, null = True)
     active = models.BooleanField(default = False)
-    internal_email = models.EmailField(null=True, blank=True, unique= True)
+    check_email = models.BooleanField(default = False)
+    internal_email = models.EmailField(null=True, blank=True)
     user_django = models.ForeignKey(User, on_delete = models.CASCADE, null = True, blank = True)
 
 
@@ -43,15 +45,19 @@ class Employee(models.Model):
         result = {
             "code": 400,
             "status": "Fail",
-            "message": "Token no valido"
+            "message": "Usuario no disponible"
         }
         try:
-            user = User.objects.create_user(username=data['username'], email=data['email'])
-            user.set_password(data['psswd'])
-            user.save()
-            result["code"] = 200
-            result["status"] = "OK"
-            result["message"] = "Success"
+            user = User.objects.filter(username=data["username"]).first()
+            if not user:
+                user = User.objects.create_user(username=data['username'], email=data['email'])
+                user.set_password(data['psswd'])
+                user.save()
+                # create code verification email
+                CheckUser.create_check_code(user)
+                result["code"] = 200
+                result["status"] = "OK"
+                result["message"] = "Success"
         except Exception as e:
             result['message'] = str(e)
         return result
@@ -59,7 +65,9 @@ class Employee(models.Model):
 
     @staticmethod
     def search_by_token(token):
-        return Employee.objects.get(user_django = Token.objects.get(key = token).user)
+        _token = Token.objects.get(key = token)
+        _employee = Employee.objects.filter(user_django = _token.user)
+        return _employee.first()
     
     @staticmethod
     def check_by_token(token):
@@ -145,9 +153,12 @@ class Employee(models.Model):
         user = authenticate(username=data['user'], password=data['psswd'])
         if user:
             token, created = Token.objects.get_or_create(user=user)
-            employee = cls.objects.filter(user_django = user).first()
-            if employee is not None:
-                if not employee.active:
+            # get or create code check email
+            check_email_user = CheckUser.create_check_code(user)
+            if check_email_user.check_email:
+                employee = cls.objects.filter(user_django = user).first()
+                if employee is not None:
+                    #if employee.active:
                     validate = License.validate_date(employee.branch)
                     if validate['result']:
                         result['code'] = 200
@@ -162,13 +173,15 @@ class Employee(models.Model):
                         result["data"]['permission'] = [ i.name for i in employee.permission.all()]
                     else:
                         result['message'] = validate['message']
+                    #else:
+                    #    result['message'] = "Su cuenta aun no ha sido activada."
                 else:
-                    result['message'] = "Ya tiene la cuenta abierta en otro dispositivo"
+                    result["data"] = {'token': str(token.key), "check": False}
+                    result['code'] = 200
+                    result['message'] = "Employee no ha sido configurado"
+                    result['status'] = 'Employee'
             else:
-                result["data"] = {'token': str(token.key), "check": False}
-                result['code'] = 200
-                result['message'] = "Employee no ha sido configurado"
-                result['status'] = 'Employee'
+                result['message'] = "Su cuenta aun no ha sido activada."
         else:
             result['message'] = "Usuario o clave incorrecto"
         return result
@@ -184,7 +197,7 @@ class Employee(models.Model):
             if cls.check_by_token(data['token']):
                 try:
                     employee = cls.search_by_token(data['token'])
-                    employee.active = False
+                    #employee.active = False
                     employee.save()
                 except Exception as e2:
                     pass
@@ -207,54 +220,116 @@ class Employee(models.Model):
             "message": "Token no valido"
         }
         try:
-            employee = cls.objects.get(identification_number=data['identification_number'])
+            employee = cls.objects.get(pk=data['pk_employee'])
             result['message'] = "The employee already exists."
         except cls.DoesNotExist as e:
             employee = None
 
-        branch = cls.objects.get(pk = data['pk_employee']).branch if data['pk_employee'] is not None else Branch.objects.get(pk = data['branch'])
+        __employee = cls.objects.filter(pk = data['pk_employee']).first()
+        branch = __employee.branch if __employee is not None else Branch.objects.get(pk = data['branch'])
         license = License.objects.get(branch=branch)
         validate = License.validate_date(branch)
-        if validate['result']:
-            if license.user > 0:
-                if employee is None:
-                    token = Token.objects.filter(key=data["token"]).first()
-                    if token:
-                        employee = cls(
-                            type_worker_id = Type_Worker.objects.filter(id = data['type_worker_id']).first(),
-                            sub_type_worker_id = Sub_Type_Worker.objects.filter(id = data['sub_type_worker_id']).first(),
-                            payroll_type_document_identification_id = Payroll_Type_Document_Identification.objects.filter(id = data['payroll_type_document_identification_id']).first(),
-                            municipality_id = Municipalities.objects.filter(id = data['municipality_id']).first(),
-                            type_contract_id = Type_Contract.objects.filter(id = data['type_contract_id']).first(),
-                            high_risk_pension = data['high_risk_pension'],
-                            identification_number = data['identification_number'],
-                            surname = data['surname'],
-                            second_surname = data['second_surname'],
-                            first_name = data['first_name'],
-                            middle_name = None,
-                            address = data['address'],
-                            integral_salary = data['integral_salary'],
-                            salary = data['salary'],
-                            email = data['email'],
-                            branch = branch,
-                            user_name = data['user_name'].lower(),
-                            psswd = get_random_string(length=20) if data['psswd'] is None else data['psswd'],
-                            internal_email = f"{data['user_name'].lower()}@{branch.name.lower().replace(' ','_')}.com",
-                            user_django = token.user
-                        )
-                        employee.save()
-                        License.discount_user(branch)
-                        result['code'] = 200
-                        result['status'] = 'OK'
-                        result['message'] = "Success"
-                        for i in data['permissions']:
-                            employee.permission.add(Permission.objects.get(pk = i))
-                        _data = {"System":"Registration was carried out from the system"} if data['pk_employee'] is None else json.loads(cls.get_employee_serialized(data['pk_employee']).content.decode('utf-8'))[0]['fields']
-                        History_Employee.register_movement("Created",_data,data)
+        if not __employee:
+            if validate['result']:
+                if license.user > 0:
+                    if employee is None:
+                        token = Token.objects.filter(key = data["token"]).first()
+                        if token:
+                            _active = True
+                            if data["state"] == "":
+                                _active = False
+                            employee = cls(
+                                type_worker_id = Type_Worker.objects.filter(id = data['type_worker_id']).first(),
+                                sub_type_worker_id = Sub_Type_Worker.objects.filter(id = data['sub_type_worker_id']).first(),
+                                payroll_type_document_identification_id = Payroll_Type_Document_Identification.objects.filter(id = data['payroll_type_document_identification_id']).first(),
+                                municipality_id = Municipalities.objects.filter(id = data['municipality_id']).first(),
+                                type_contract_id = Type_Contract.objects.filter(id = data['type_contract_id']).first(),
+                                high_risk_pension = data['high_risk_pension'],
+                                identification_number = data['identification_number'],
+                                surname = data['surname'],
+                                second_surname = data['second_surname'],
+                                first_name = data['first_name'],
+                                middle_name = None,
+                                address = data['address'],
+                                integral_salary = data['integral_salary'],
+                                salary = data['salary'],
+                                email = data["email"] if "email" in data else token.user.email,
+                                branch = branch,
+                                user_name = data['user_name'].lower(),
+                                psswd = get_random_string(length=20) if data['psswd'] is None else data['psswd'],
+                                internal_email = f"{data['user_name'].lower()}@{branch.name.lower().replace(' ','_')}.com",
+                                user_django = User.objects.filter(username=data["username"]).first() if data["username"] != None else token.user,
+                                active = _active
+                            )
+                            employee.save()
+                            License.discount_user(branch)
+                            result['code'] = 200
+                            result['status'] = 'OK'
+                            result['message'] = "Success"
+                            for i in data['permissions']:
+                                employee.permission.add(Permission.objects.get(pk = int(i)))
+                            data["pk_employee"] = employee.pk
+                            #_data = {"System":"Registration was carried out from the system"} if data['pk_employee'] is None else json.loads(cls.get_employee_serialized(data['pk_employee']).content.decode('utf-8'))[0]['fields']
+                            #History_Employee.register_movement("Created",_data,data)
+                            if not data["username"]:
+                                current_employee = Employee.search_by_token(token=data["token"])
+                            else:
+                                current_employee = employee
+                            HistoryGeneral.create_history(
+                                action=HistoryGeneral.CREATED,
+                                class_models=HistoryGeneral.EMPLOYEE,
+                                class_models_json=json.loads(cls.get_employee_serialized(data['pk_employee']).content.decode('utf-8'))[0],
+                                employee=current_employee.pk,
+                                username=current_employee.user_django.username,
+                                branch=current_employee.branch.pk
+                            )
+                else:
+                    result['message'] = "Sorry, there are no more users"
+                    User.objects.filter(username=data["username"]).delete()
             else:
-                result['message'] = "Sorry, there are no more users"
+                result['message'] = validate['message']
         else:
-            result['message'] = validate['message']
+            if Employee.check_by_token(token=data["token"]):
+                current_employee = Employee.search_by_token(token=data["token"])
+                if current_employee.branch.company == __employee.branch.company:
+                    _active = True
+                    if data["state"] == "":
+                        _active = False
+                    _user = __employee.user_django
+                    _user.username = data["username"]
+                    _user.email = data["email"]
+                    if data["psswd"]:
+                        _user.set_password(data["psswd"])
+                    _user.save()
+
+                    __employee.email = data["email"]
+                    __employee.branch = Branch.objects.filter(pk = data['branch']).first()
+                    __employee.first_name = data['first_name']
+                    __employee.active = _active
+                    for p in __employee.permission.all():
+                        __employee.permission.remove(p)
+
+                    for i in data['permissions']:
+                        employee.permission.add(Permission.objects.get(pk = int(i)))
+
+                    __employee.save()
+
+                    #_data = {"System":"Registration was carried out from the system"} if data['pk_employee'] is None else json.loads(cls.get_employee_serialized(data['pk_employee']).content.decode('utf-8'))[0]['fields']
+                    #History_Employee.register_movement("Update",_data,data)
+                    HistoryGeneral.create_history(
+                        action=HistoryGeneral.UPDATE,
+                        class_models=HistoryGeneral.EMPLOYEE,
+                        class_models_json=json.loads(cls.get_employee_serialized(data['pk_employee']).content.decode('utf-8'))[0],
+                        employee=current_employee.pk,
+                        username=current_employee.user_django.username,
+                        branch=current_employee.branch.pk
+                    )
+
+                    result['code'] = 200
+                    result['status'] = 'OK'
+                    result['message'] = "Success"
+                else:
+                    result['message'] = "Insufficient permissions"
         return result
 
     @staticmethod
@@ -267,26 +342,31 @@ class Employee(models.Model):
             return JsonResponse({'error': 'Employee not found'}, status=404)
 
     @classmethod
-    def get_list_employee(cls,data_):
+    def get_list_employee(cls, data):
         result = {
-            "data": {},
+            "data": [],
             "code": 400,
             "status": "Fail",
             "message": "Token no valido"
         }
-        data = []
-        branch = Employee.objects.get(pk= data_['pk_employee']).branch
+        
         try:
-            for i in Employee.objects.filter(branch = branch):
-                serialized_employee = serializers.serialize('json', [i])
-                employee = json.loads(serialized_employee)[0]
-                data.append(employee)
-            result['code'] = 200
-            result['status'] = 'OK'
-            result['message'] = "Success"
+            if Employee.check_by_token(token=data["token"]):
+                branch = Employee.search_by_token(token=data["token"]).branch
+                company = branch.company
+                for branch in Branch.objects.filter(company=company):
+                    for i in Employee.objects.filter(branch = branch):
+                        serialized_employee = serializers.serialize('json', [i])
+                        employee = json.loads(serialized_employee)[0]
+                        employee["fields"]["username"] = i.user_django.username
+                        employee["fields"]["email"] = i.user_django.email
+                        employee["fields"]["branch_name"] = i.branch.name
+                        result['data'].append(employee)
+                result['code'] = 200
+                result['status'] = 'OK'
+                result['message'] = "Success"
         except Exception as e:
             result['message'] = str(e)
-        result['data'] = data
         return result
 
     @classmethod
@@ -298,38 +378,129 @@ class Employee(models.Model):
             "message": "Token no valido"
         }
         try:
-            employee = cls.objects.get(pk=data['pk_employee'])
-            validate = License.validate_date(employee.branch)
-            if validate['result']:
-                License.add_user(employee.branch)
-                employee.delete()
-                result['code'] = 200
-                result['status'] = 'OK'
-                result['message'] = "Success"
-            else:
-                result['message'] = validate['message']
+            if Employee.check_by_token(token=data["token"]):
+                __employee = Employee.search_by_token(token=data["token"])
+                employee = cls.objects.get(pk=data['pk_employee'])
+                validate = License.validate_date(employee.branch)
+                if validate['result']:
+                    License.add_user(employee.branch)
+                    #employee.delete()
+                    HistoryGeneral.create_history(
+                        action=HistoryGeneral.DELETE,
+                        class_models=HistoryGeneral.EMPLOYEE,
+                        class_models_json=json.loads(cls.get_employee_serialized(data['pk_employee']).content.decode('utf-8'))[0],
+                        employee=__employee.pk,
+                        username=__employee.user_django.username,
+                        branch=__employee.branch.pk
+                    )
+                    employee.user_django.delete()
+                    result['code'] = 200
+                    result['status'] = 'OK'
+                    result['message'] = "Success"
+                else:
+                    result['message'] = validate['message']
         except cls.DoesNotExist as e:
-            employee = str(e)
+            result['message'] = str(e)
+
         return result
         
     @classmethod
     def get_employee(cls, data):
-        employee = Employee.objects.get(pk= data['pk_employee'])
-        _e = json.loads(serializers.serialize('json', [employee]))[0]
-        data = _e['fields']
-        data['pk_employee'] = _e['pk']
-        data['pk_municipalities'] =  Municipalities.objects.get(id = data['municipality_id'])._id
-        data['name_municipalities'] =  Municipalities.objects.get(id = data['municipality_id']).name
-        data['pk_Type_Worker'] =  Type_Worker.objects.get(id = data['municipality_id'])._id
-        data['name_Type_Worker'] =  Type_Worker.objects.get(id = data['municipality_id']).name
-        data['pk_Sub_Type_Worker'] =  Sub_Type_Worker.objects.get(id = data['municipality_id'])._id
-        data['name_Sub_Type_Worker'] =  Sub_Type_Worker.objects.get(id = data['municipality_id']).name
-        data['pk_Payroll_Type_Document_Identification'] =  Payroll_Type_Document_Identification.objects.get(id = data['municipality_id'])._id
-        data['name_Payroll_Type_Document_Identification'] =  Payroll_Type_Document_Identification.objects.get(id = data['municipality_id']).name
-        data['pk_Type_Contract'] =  Type_Contract.objects.get(id = data['municipality_id'])._id
-        data['name_Type_Contract'] =  Type_Contract.objects.get(id = data['municipality_id']).name
-        data['permission'] = [ {'pk_permission':i.pk,'name_permission':i.name} for i in employee.permission.all()]
-        return data
+        result = {
+            "data": {},
+            "code": 400,
+            "status": "Fail",
+            "message": "Token no valido"
+        }
+        try:
+            if Employee.check_by_token(token=data["token"]):
+                employee = Employee.search_by_token(token=data["token"])
+                _e = json.loads(serializers.serialize('json', [employee]))[0]
+                result["data"] = _e['fields']
+                result["data"]['pk_employee'] = _e['pk']
+                #result["data"]['pk_municipalities'] =  Municipalities.objects.filter(id = result["data"]['municipality_id']).first()._id
+                #result["data"]['name_municipalities'] =  Municipalities.objects.filter(id = result["data"]['municipality_id']).first().name
+                #result["data"]['pk_Type_Worker'] =  Type_Worker.objects.filter(id = result["data"]['municipality_id']).first()._id
+                #result["data"]['name_Type_Worker'] =  Type_Worker.objects.filter(id = result["data"]['municipality_id']).first().name
+                #result["data"]['pk_Sub_Type_Worker'] =  Sub_Type_Worker.objects.filter(id = result["data"]['municipality_id']).first()._id
+                #result["data"]['name_Sub_Type_Worker'] =  Sub_Type_Worker.objects.filter(id = result["data"]['municipality_id']).first().name
+                #result["data"]['pk_Payroll_Type_Document_Identification'] =  Payroll_Type_Document_Identification.objects.filter(id = result["data"]['municipality_id']).first()._id
+                #result["data"]['name_Payroll_Type_Document_Identification'] =  Payroll_Type_Document_Identification.objects.filter(id = result["data"]['municipality_id']).first().name
+                #result["data"]['pk_Type_Contract'] =  Type_Contract.objects.filter(id = result["data"]['municipality_id']).first()._id
+                #result["data"]['name_Type_Contract'] =  Type_Contract.objects.filter(id = result["data"]['municipality_id']).first().name
+                result["data"]['permission'] = [ {'pk_permission':i.pk,'name_permission':i.name} for i in employee.permission.all()]
+                result['code'] = 200
+                result["status"] = "OK"
+                result["message"] = "Success"
+        except cls.DoesNotExist as e:
+            result['message'] = str(e)
+        return result
+
+
+class CheckUser(models.Model):
+    code = models.CharField(max_length=100)
+    check_email = models.BooleanField(default = False)
+    created = models.DateTimeField()
+    user = models.ForeignKey(User, on_delete = models.CASCADE, null = True, blank = True)
+    
+    def __str__(self) -> str:
+        return str(self.code)+" - "+str(self.user)
+    
+    @classmethod
+    def create_check_code(cls, user):
+        check_email_user = cls.objects.filter(user=user).first()
+        if not check_email_user:
+            check_email_user = cls.objects.create(
+                code = get_random_string(30),
+                check_email = False,
+                created = datetime.now(),
+                user = user
+            )
+            cls.check_email_user(user)
+        else:
+            # verificar el tiempo de duracion del codigo
+            pass
+        
+        return check_email_user
+    
+    @classmethod
+    def check_email_user_with_code(cls, data):
+        result = {
+            "code": 400,
+            "status": "Fail",
+            "message": "Codigo no valido"
+        }
+        check_email_user = cls.objects.filter(user=User.objects.filter(username=data["username"]).first(), code=data["code"]).first()
+        if check_email_user:
+            check_email_user.check_email = True
+            check_email_user.save()
+            result["code"] = 200
+            result["status"] = "OK"
+            result["message"] = "Success"
+        
+        return result
+    
+    @classmethod
+    def check_email_user(cls, user:User):
+        check_email_user = cls.objects.filter(user=user).first()
+        email_smtp = EmailSMTP.objects.all().last()
+        email_send = MessageEmail.objects.filter(type_message=MessageEmail.CHECK_EMAIL).first()
+        send(
+            email_smtp.email,
+            email_smtp.password,
+            ""+user.email,
+            email_send.asunto,
+            "",
+            email_send.message+" "+str(settings.URL_SITE)+"/check-user?code="+str(check_email_user.code)+"&username="+str(user.username),
+            "",
+            email_smtp.host,
+            email_smtp.port
+        )
+
+    @classmethod
+    def get_check_user(cls, user):
+        return cls.objects.filter(user=user).first()
+
 
 class History_Employee(models.Model):
     ACTION_CHOICES = (

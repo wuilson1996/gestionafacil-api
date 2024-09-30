@@ -1,0 +1,4 @@
+{
+    'message': 'Account Created successfully',
+    'success': True
+}

@@ -1,6 +1,6 @@
 from django.db import models
 from shopping.models import Shopping, PaymentFormShopping, Pass as p
-from invoice.models import Invoice, Payment_Forms, Pass, History_Pass
+from invoice.models import Invoice, Payment_Forms, PaymentToPayInvoice, History_Pass
 from company.models import Branch
 from django.core import serializers
 from datetime import datetime
@@ -15,7 +15,7 @@ class Wallet(models.Model):
 		data = []
 		for i in invoice:
 			print(i)
-			_pass = Pass.objects.get(invoice = i)
+			_pass = PaymentToPayInvoice.objects.get(invoice = i)
 			payment_forms = Payment_Forms.objects.get(invoice = i)
 			date_start = datetime.strptime(i.date, "%Y-%m-%d")
 			date_end = datetime.strptime(payment_forms.payment_due_date, "%Y-%m-%d")

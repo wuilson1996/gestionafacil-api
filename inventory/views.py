@@ -8,10 +8,6 @@ from rest_framework.decorators import api_view
 def Create_Supplier(request):
     return Response(Supplier.create_supplier(request.data))
 
-@api_view(['PUT'])
-def Update_Supplier(request):
-    return Response(Supplier.update_supplier(request.data))
-
 @api_view(['GET'])
 def List_Supplier(request):
     return Response(Supplier.list_supplier(request.data))
@@ -29,10 +25,6 @@ def Get_Supplier(request):
 @api_view(['POST'])
 def Create_Product(request):
     return Response(Product.create_product(request.data))
-
-@api_view(['PUT'])
-def Update_Product(request):
-    return Response(Product.update_product(request.data))
 
 @api_view(['DELETE'])
 def Delete_Product(request):
@@ -83,3 +75,15 @@ def Get_Category(request):
 @api_view(['POST'])
 def Get_SubCategory(request):
     return Response(SubCategory.get_list_subcategory(request.data))
+
+@api_view(['GET'])
+def Get_SubCategoryByBranch(request):
+    return Response(SubCategory.get_list_subcategory_by_branch(request.data))
+
+@api_view(['POST'])
+def Create_SubCategoryByBranch(request):
+    return Response(SubCategory.create_subcategory_by_branch(request.data))
+
+@api_view(['DELETE'])
+def Delete_SubCategoryByBranch(request):
+    return Response(SubCategory.delete_subcategory_by_branch(request.data))

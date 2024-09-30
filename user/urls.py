@@ -12,4 +12,5 @@ urlpatterns=[
 	url(r'^Delete_User/$',Delete_User,name="Delete_User"),
 	url(r'^Query_Permissions/$',Query_Permissions,name="Query_Permissions"),
 	url(r'^Get_List_Email/$',Get_List_Email,name="Get_List_Email"),
+    url(r'^Check_Email_User_With_Code/$',Check_Email_User_With_Code,name="Check_Email_User_With_Code"),
 ]

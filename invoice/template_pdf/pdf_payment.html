@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Complemento de pago</title>
+  <style>
+
+  </style>
+<body style='font-family:Tahoma;font-size:12px;color: #333333;background-color:#FFFFFF;'>
+  <table align='center' border='0' cellpadding='0' cellspacing='0' style='height:842px; width:100%;font-size:12px;'>
+    <tr>
+      <td valign='top'>
+        <table width='100%' cellspacing='0' cellpadding='0'>
+          <tr style="height: 30px;">
+            
+            <td valign='top' width='100%' style='font-size:12px;' align="right">
+              <strong>Raz&oacute;n Social:</strong>&nbsp;{% if company.name %}{{company.name}}{% else %}N/A{% endif %}</strong><br>
+              <strong>RFC:</strong>&nbsp;{% if company.documentI %}{{company.documentI}}-{{customer.dv}}{% else %}N/A{% endif %}</strong><br>
+              <strong>Regimen fiscal:&nbsp;{% if company.type_regime %}{{company.type_regime.name}}{% else %}N/A{% endif %}</strong><br><br>
+              <!-- <strong>ORDEN: </strong> -->
+            </td>
+          </tr>
+        </table>
+        <table width='100%' cellspacing='0' cellpadding='0'>
+            <tr style="height: 30px;">
+                <td valign='top' width='40%' style='font-size:12px;' align="left">
+                    <strong>LUGAR DE EXPEDICI&Oacute;N: {{company.address.0}} - {{company.estado}}</strong>&nbsp;</strong><br>
+                </td>
+                <td valign='top' width='30%' style='font-size:12px;' align="left">
+                    <strong>EXPORTACI&Oacute;N: 01 - No aplica</strong><br>
+                </td>
+                <td valign='top' width='30%' style='font-size:12px;' align="right">
+                    <strong>MONEDA: XXX</strong><br>
+                </td>
+            </tr>
+        </table>
+        <table width='100%' cellspacing='0' cellpadding='2' border='1' bordercolor='#CCCCCC'>
+            <tr>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>FOLIO FISCAL (UUID)</strong></td>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'>
+                <strong>N. SERIE CSD DEL EMISOR</strong><br>
+                <strong>N. SERIE CSD DEL SAT</strong></td>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'>
+                <strong>FECHA DE EMISI&Oacute;N</strong><br>
+                <strong>FECHA DE CERTIFICACI&Oacute;N</strong></td>
+              </td>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'>
+                <strong>SERIE - FOLIO</strong><br>
+                <strong>TIPO DE COMPROBANTE</strong></td>
+              </td>
+            </tr>
+            <tr style="display:none;">
+              <td colspan="*">
+                  <tr>
+                    <td valign='top' style='font-size:12px;'>
+                        <strong>{{UUID}}</strong><br/>
+                    </td>
+                    <td valign='top' style='font-size:12px;text-align: left;'>
+                        <span id="price">{{no_cert_dig}}</span><br>
+                        <span id="price">{{no_cert_sat}}</span>
+                    </td>
+                    <td valign='top' style='font-size:12px;text-align: left;'>
+                        <span id="price">{{created}}</span><br>
+                        <span id="price">{{date_cert}}</span>
+                    </td>
+                    <td valign='top' style='font-size:12px;text-align: left;'>
+                        <span id="price">P - {{number}}</span><br>
+                        <span id="price">P - Pago</span>
+                    </td>
+                  </tr>
+              </td>
+            </tr>
+        </table><br>
+        <table width='100%' cellspacing='0' cellpadding='2' border='1' bordercolor='#CCCCCC'>
+            <tr>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Receptor</strong></td>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong></strong></td>
+            </tr>
+            <tr style="display:none;">
+              <td colspan="*">
+                  <tr>
+                    <td valign='top' style='font-size:12px;'>
+                      <strong>RFC:</strong>&nbsp;{% if customer.identification_number %}{{customer.identification_number}}-{{customer.dv}}{% else %}N/A{% endif %}<br />
+                      <strong>Raz&oacute;n Social:</strong>&nbsp;{% if customer.name %}{{customer.name}}{% else %}N/A{% endif %}<br />
+                      <strong>Email:</strong>&nbsp;{% if customer.email %}{{customer.email}}{% else %}N/A{% endif %}<br />
+                      <strong>Direcci&oacute;n:</strong>&nbsp;{% if customer.address %}{{customer.address}}{% else %}N/A{% endif %} <br/>
+                      <strong>Tlf:</strong>&nbsp;{% if customer.phone %}{{customer.phone}}{% else %}N/A{% endif %}<br>
+                    </td>
+                    <td valign='top' style='font-size:12px;text-align: left;'>
+                        <span id="price">USO CFDI: Pagos</span><br>
+                        <span id="price">DOMICILIO FISCAL: {{customer.code_postal}}</span>
+                    </td>
+                  </tr>
+              </td>
+            </tr>
+        </table><br>
+        <table width='100%' cellspacing='0' cellpadding='2' border='1' bordercolor='#CCCCCC'>
+            <tr>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Cantidad</strong></td>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Descripcion</strong></td>
+              <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>P. Unitario</strong></td>
+              <td width='35%' bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Importe</strong></td>
+            </tr>
+            <tr style="display:none;">
+              <td colspan="*">
+                
+                  <tr>
+                    <td valign='top' style='font-size:12px;'>1</td>
+                    <td valign='top' style='font-size:12px;'><span id="price"></span>{{note}}</td>
+                    <td valign='top' style='font-size:12px;'>0</td>
+                    <td valign='top' style='font-size:12px;'>0</td>
+                  </tr>
+                
+              </td>
+            </tr>
+        </table>
+        <br>
+        <table width='100%' cellspacing='0' cellpadding='2' border='1' bordercolor='#CCCCCC'>
+          <tr>
+            <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Pago #1</strong></td>
+          </tr>
+          <tr style="display:none;">
+            <td colspan="*">
+              <tr>
+                <td valign='top' style='font-size:12px;'>Fecha Pago: {{date}} <br>Forma Pago: {{payment_form._id}} - {{payment_form.name}}</td>
+                <td valign='top' style='font-size:12px;'><span id="price"></span>Tipo Cambio: 1 <br>N&uacute;mero operaci&oacute;n: {{pk}}</td>
+                <td valign='top' style='font-size:12px;'>Moneda Pago: {{company.money}} <br>Monto: {{total_paid}}</td>
+              </tr>
+            </td>
+          </tr>
+        </table>
+        <table width='100%' cellspacing='0' cellpadding='0'>
+          <tr style="height: 10px;">
+              <td valign='top' width='100%' style='font-size:12px;' align="left">
+                  <strong>DOCUMENTOS RELACIONADOS</strong>&nbsp;<br>
+              </td>
+          </tr>
+        </table>
+        <table width='100%' cellspacing='0' cellpadding='2' border='1' bordercolor='#CCCCCC'>
+          <tr>
+            <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Parcialidad</strong></td>
+            <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Documento relacionado</strong></td>
+            <td bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Moneda</strong></td>
+            <td width='10%' bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Importe Saldo <br>Anterior</strong></td>
+            <td width='10%' bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Importe Pagado</strong></td>
+            <td width='10%' bordercolor='#ccc' bgcolor='#f2f2f2' style='font-size:12px;'><strong>Importe Insoluto</strong></td>
+          </tr>
+          <tr style="display:none;">
+            <td colspan="*">
+                <tr>
+                  <td valign='top' style='font-size:12px;'>{{parcialidad}}</td>
+                  <td valign='top' style='font-size:12px;text-align: right;'><span id="price"></span>{{UUID_invoice}} / {{folio}}</td>
+                  <td valign='top' style='font-size:12px;'>{{company.money}}</td>
+                  <td valign='top' style='font-size:12px;'>{{imp_saldo_ant}}</td>
+                  <td valign='top' style='font-size:12px;'>{{total_paid}}</td>
+                  <td valign='top' style='font-size:12px;'>{{imp_saldo_insoluto}}</td>
+                </tr>
+            </td>
+          </tr>
+        </table>
+        <div valign='bottom'>
+          <table width='100%' height='50'>
+            <tr>
+              <td style='font-size:12px;text-align:justify;'></td>
+            </tr>
+          </table>
+          <table width='100%' cellspacing='0' cellpadding='0'>
+            <tr style="height: 30px;">
+              <td valign='top' width='100%' style='font-size:10px;'>
+                <strong>Cadena original del complemento de certificaci&oacute;n digital del SAT: </strong><br>
+                <span>{{cadena_original}}</span>
+              </td>
+            </tr>
+          </table>
+          <table width='100%' cellspacing='0' cellpadding='0'>
+            <tr style="height: 30px;">
+              <td valign='bottom' width='20%' height='100'>
+                <div align='left'>
+                  <img src='{{logo}}' height="100%" width="80%"  />
+                </div>
+                <br />
+              </td>
+              <td valign='top' width='80%' style='font-size:10px;'>
+                <table width='100%' cellspacing='0' cellpadding='0'>
+                  <td valign='top' width='100%' style='font-size:10px;'>
+                    <strong>Sello Digital CFDI: </strong><br>
+                    <span>{{sello_cfdi}}</span>
+                  </td>
+                </table>
+                <br>
+                <table width='100%' cellspacing='0' cellpadding='0'>
+                  <td valign='top' width='100%' style='font-size:10px;'>
+                    <strong>Sello Digital del SAT: </strong><br>
+                    <span>{{SatSeal}}</span>
+                  </td>
+                </table>
+              </td>
+            </tr>
+          </table>
+          <table width='100%' height='10'>
+            <tr>
+              <td style='font-size:12px;text-align:justify;'></td>
+            </tr>
+          </table>
+          <table width='100%' cellspacing='0' cellpadding='2'>
+            <tr>
+              <td width='20%' style='border-top:double medium #CCCCCC;font-size:12px;' valign='top'>
+                <b>
+  
+                </b>
+              </td>
+              <td width='60%' style='border-top:double medium #CCCCCC; font-size:12px;' align='center' valign='top'>
+                Software Desarrollado por <a href="https://gestionafacil.wuilsoft.tech/">Gestiona Facil</a>, Gracias por comprar con nosotros<br>
+                Este documento es una representaci&oacute;n impresa de un CFDI.</br>
+              </td>
+  
+              <td valign='top' width='20%' style='border-top:double medium #CCCCCC;font-size:12px;' align='right'>
+                
+              </td>
+            </tr>
+          </table>
+        </div>
+        
+      </td>
+    </tr>
+  </table>
+  
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+    'message': None,
+    'users': {
+        'ResellerUser': [
+            {
+                'status': 'A',
+                'counter': 0,
+                'taxpayer_id': 'EKU9003173C9',
+                'credit': -1
+            }
+        ]
+    }
+}

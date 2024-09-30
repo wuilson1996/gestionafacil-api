@@ -15,10 +15,6 @@ def Get_List_Customer(request):
 def Get_Customer(request):
 	return Response(Customer.get_customer(request.data))
 
-@api_view(['PUT'])
-def Update_Customer(request):
-	return Response(Customer.update_customer(request.data))
-
 @api_view(['DELETE'])
 def Delete_Client(request):
 	return Response(Customer.delete_client(request.data))
